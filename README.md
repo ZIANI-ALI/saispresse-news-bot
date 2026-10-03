@@ -29,7 +29,7 @@ Variables ikhtiyariyin: `GEMINI_MODELS`, `POLL_SECONDS`, `RUN_MINUTES`.
 
 ## Limites Gemini free
 
-Free tier 3ndo limite d requests f l youm (kaytbedel 3la 7sab model). Ila t9ada `gemini-2.5-flash`, bot kaydouz l `gemini-2.5-flash-lite`. Ila t9adaw b jouj, kaywselk ghir l alerte + "Gemini ma jawebsh". L 7ul: 7bes sources li ma kat7tajhoumch.
+Free tier 3ndo limite d requests f l youm (kaytbedel 3la 7sab model). Bot kaykhtar automatiquement a7dath model flash; ila t9ada, kaydouz l flash-lite. Ila t9adaw b jouj, kaywselk ghir l alerte + "Gemini ma jawebsh". L 7ul: 7bes sources li ma kat7tajhoumch.
 
 ## Test local
 

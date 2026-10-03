@@ -3,7 +3,7 @@ m3a 2 versions mktobin b Gemini: (1) nafs l khabar b siyagha jdida, (2) version 
 
 Env:
   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, GEMINI_API_KEY   (darouriyin, ghir f DRY_RUN)
-  GEMINI_MODELS        default "gemini-2.5-flash,gemini-2.5-flash-lite" (ila l lowel 429 kaydouz l tani)
+  GEMINI_MODELS        khawi = kaykhtar automatiquement a7dath flash + flash-lite (ila l lowel 429 kaydouz l tani)
   RUN_MINUTES          0 = dowra we7da; >0 = ybqa ydour had l mudda (mode GitHub Actions)
   POLL_SECONDS         default 60
   MAX_AGE_HOURS        default 3 (khbar 9dam men hadi ma kaytsiftsh)
@@ -26,7 +26,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 from zoneinfo import ZoneInfo
 
 import feedparser
@@ -40,8 +40,7 @@ STATE_FILE = Path(os.environ.get("STATE_FILE", ROOT / "state" / "seen.json"))
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODELS = [m.strip() for m in os.environ.get(
-    "GEMINI_MODELS", "gemini-2.5-flash,gemini-2.5-flash-lite").split(",") if m.strip()]
+GEMINI_MODELS = [m.strip() for m in os.environ.get("GEMINI_MODELS", "").split(",") if m.strip()]
 
 RUN_MINUTES = float(os.environ.get("RUN_MINUTES", "0"))
 POLL_SECONDS = float(os.environ.get("POLL_SECONDS", "60"))
@@ -97,12 +96,22 @@ def feed_url(src: dict) -> str:
     return src["url"]
 
 
+_feed_ko_logged: set[str] = set()
+
+
 def fetch_feed(src: dict) -> list[dict]:
     try:
         r = http.get(feed_url(src), timeout=20)
         r.raise_for_status()
     except requests.RequestException as e:
-        log(f"[feed KO] {src['name']}: {e.__class__.__name__} {getattr(e.response, 'status_code', '')}")
+        if src["name"] not in _feed_ko_logged:
+            _feed_ko_logged.add(src["name"])
+            log(f"[feed KO] {src['name']}: {e.__class__.__name__} {getattr(e.response, 'status_code', '')}"
+                + (" -> Google News" if src["type"] == "rss" else ""))
+        if src["type"] == "rss":
+            # Bzaf d sites kaybloquiw IPs dyal GitHub: ndouzo l Google News dyal nafs domain.
+            domain = urlparse(src["url"]).netloc.removeprefix("www.")
+            return fetch_feed({**src, "type": "gnews", "url": domain})
         return []
     parsed = feedparser.parse(r.content)
     items = []
@@ -215,8 +224,39 @@ class GeminiError(Exception):
     pass
 
 
+_models: list[str] | None = list(GEMINI_MODELS) or None
+_MODEL_RE = re.compile(r"^gemini-(\d+(?:\.\d+)*)-flash(-lite)?$")
+
+
+def discover_models() -> list[str]:
+    """Kayjib l models li mt-wafrin l had l key: a7dath flash, a7dath flash-lite, w flash tani."""
+    try:
+        r = http.get("https://generativelanguage.googleapis.com/v1beta/models",
+                     params={"pageSize": 1000}, headers={"x-goog-api-key": GEMINI_KEY}, timeout=30)
+        r.raise_for_status()
+        found = []
+        for m in r.json().get("models", []):
+            name = m.get("name", "").removeprefix("models/")
+            match = _MODEL_RE.match(name)
+            if match and "generateContent" in m.get("supportedGenerationMethods", []):
+                version = tuple(int(x) for x in match.group(1).split("."))
+                found.append((version, bool(match.group(2)), name))
+        found.sort(key=lambda f: (tuple(-v for v in f[0]), f[1]))
+        flash = [n for _, lite, n in found if not lite]
+        lite = [n for _, is_lite, n in found if is_lite]
+        picked = flash[:1] + lite[:1] + flash[1:2]
+        if picked:
+            log(f"Gemini models: {', '.join(picked)}")
+            return picked
+    except (requests.RequestException, ValueError) as e:
+        log(f"[gemini models KO] {e.__class__.__name__}")
+    return ["gemini-flash-latest", "gemini-flash-lite-latest"]
+
+
 def rewrite(item: dict, text: str) -> dict:
-    global _last_gemini_call
+    global _last_gemini_call, _models
+    if not _models:
+        _models = discover_models()
     user = (f"المصدر: {item['source']}\n"
             f"العنوان الأصلي: {item['title']}\n\n"
             f"نص الخبر:\n<<<\n{text}\n>>>")
@@ -230,7 +270,7 @@ def rewrite(item: dict, text: str) -> dict:
         },
     }
     errors = []
-    for model in GEMINI_MODELS:
+    for model in list(_models):
         wait = _last_gemini_call + GEMINI_MIN_INTERVAL - time.time()
         if wait > 0:
             time.sleep(wait)
@@ -241,6 +281,8 @@ def rewrite(item: dict, text: str) -> dict:
         except requests.RequestException as e:
             errors.append(f"{model}: {e.__class__.__name__}")
             continue
+        if r.status_code == 404:
+            _models.remove(model)  # model ma b9ach; ila tkhwat l list, kan3awdo discovery
         if r.status_code != 200:
             errors.append(f"{model}: HTTP {r.status_code} {r.text[:200]}")
             continue
