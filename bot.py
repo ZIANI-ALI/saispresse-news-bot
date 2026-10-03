@@ -287,33 +287,62 @@ def pexels_image(query: str) -> tuple[Image.Image, str] | None:
     return img, f"Photo: {photo.get('photographer', '')} / Pexels"
 
 
-def render(img: Image.Image, size: tuple[int, int], crop: bool = False) -> bytes:
-    """Tswira b l 9yas l matlub. Ila l format bzaf mkhtalef w crop=False: tswira kamla f l wost
-    w nafs tswira mdbbla (blur) f l khawi, bach ma ytqta3 walou (wjouh, ktaba)."""
-    w, h = size
-    ratio_img, ratio_out = img.width / img.height, w / h
-    if crop or max(ratio_img, ratio_out) / min(ratio_img, ratio_out) <= 1.15:
-        canvas = ImageOps.fit(img, size, Image.LANCZOS)
+def smart_box(img: Image.Image, size: tuple[int, int]) -> tuple[int, int, int, int]:
+    """Kaykhtar blasa d l crop fin kayn ktar tafasil (wjouh, nas, ktaba) blast l wost dima."""
+    ratio = size[0] / size[1]
+    if img.width / img.height > ratio:  # tswira 3rida: n9t3o men jnab
+        cw, ch = round(img.height * ratio), img.height
+    else:  # tswira twila: n9t3o men fo9/ta7t
+        cw, ch = img.width, round(img.width / ratio)
+    scale = 200 / max(img.width, img.height)
+    small = img.convert("L").resize((max(1, round(img.width * scale)), max(1, round(img.height * scale))))
+    edges = small.filter(ImageFilter.FIND_EDGES)
+    px = edges.load()
+    sw, sh = edges.size
+    horizontal = cw < img.width
+    length = sw if horizontal else sh
+    win = round((cw if horizontal else ch) * scale)
+    if horizontal:
+        profile = [sum(px[x, y] for y in range(sh)) for x in range(sw)]
     else:
-        canvas = ImageOps.fit(img, size, Image.LANCZOS).filter(ImageFilter.GaussianBlur(40))
-        canvas = Image.blend(canvas, Image.new("RGB", size, (0, 0, 0)), 0.35)
-        fg = ImageOps.contain(img, size, Image.LANCZOS)
-        if ratio_img > ratio_out and fg.width < w:  # tswira sghira: kbberha l 3ard kamel
-            fg = img.resize((w, round(img.height * w / img.width)), Image.LANCZOS)
-        elif ratio_img <= ratio_out and fg.height < h:
-            fg = img.resize((round(img.width * h / img.height), h), Image.LANCZOS)
-        canvas.paste(fg, ((w - fg.width) // 2, (h - fg.height) // 2))
+        profile = [sum(px[x, y] for x in range(sw)) for y in range(sh)]
+    best, best_score = (length - win) // 2, -1.0
+    for start in range(0, max(1, length - win + 1)):
+        center_bias = 1 - 0.3 * abs((start + win / 2) / length - 0.5)  # nfdlo chwiya l wost
+        score = sum(profile[start:start + win]) * center_bias
+        if score > best_score:
+            best, best_score = start, score
+    offset = round(best / scale)
+    if horizontal:
+        left = min(max(0, offset), img.width - cw)
+        return left, 0, left + cw, ch
+    top = min(max(0, offset), img.height - ch)
+    return 0, top, cw, top + ch
+
+
+def render(img: Image.Image, size: tuple[int, int]) -> bytes:
+    """Zoom/crop bach t3ammer l format kamel (bla jnab mdbbla), b quality 3alya."""
+    box = smart_box(img, size)
+    crop = img.crop(box)
+    canvas = crop.resize(size, Image.LANCZOS)
+    if crop.width < size[0] * 0.95:  # tkbir: n7ayyed chwiya d l flou
+        canvas = canvas.filter(ImageFilter.UnsharpMask(radius=1.2, percent=60, threshold=2))
     out = BytesIO()
     canvas.save(out, "JPEG", quality=95, optimize=True, subsampling=0)
     return out.getvalue()
+
+
+def zoom_factor(img: Image.Image, size: tuple[int, int]) -> float:
+    l, t, r, b = smart_box(img, size)
+    return size[0] / (r - l)
 
 
 def insta_image(img: Image.Image) -> bytes:
     return render(img, INSTA_SIZE)
 
 
-def all_formats(img: Image.Image, crop: bool = False) -> list[tuple[str, bytes]]:
-    return [(f"{name}.jpg", render(img, size, crop)) for name, size in FORMATS]
+def all_formats(img: Image.Image) -> list[tuple[str, bytes]]:
+    return [(f"{name}.jpg", render(img, size)) for name, size in FORMATS]
 
 
 # ---------------------------------------------------------------- gemini
@@ -630,9 +659,9 @@ def process(item: dict, number: int, score: int) -> None:
     alert_id = tg_file("sendPhoto", "photo", insta, header) if insta else None
     if alert_id is None:
         alert_id = tg_send(header, preview=True)
-    elif img.width < 800:
-        tg_send(f"⚠️ Tswira l asliya sghira ({img.width}×{img.height}): quality ghatkoun m3ettla. Bdelha.",
-                reply_to=alert_id)
+    elif zoom_factor(img, INSTA_SIZE) > 1.4:
+        tg_send(f"⚠️ Tswira l asliya sghira ({img.width}×{img.height}): f l portrait ghatkoun zoom "
+                f"×{zoom_factor(img, INSTA_SIZE):.1f}, quality ghatn9es. A7san tbdelha.", reply_to=alert_id)
     if insta:
         label = ("⚠️ Tswira d l source: référence bark (3endha copyright)" if PEXELS_KEY
                  else "🖼 HD: portrait 4:5 · carré 1:1 · site 16:9 (tswira d l source: 3endha copyright)")
@@ -657,7 +686,7 @@ def process(item: dict, number: int, score: int) -> None:
     free = pexels_image(out.get("image_query", ""))
     if free:
         img_free, photo_credit = free
-        tg_album(all_formats(img_free, crop=True),
+        tg_album(all_formats(img_free),
                 f"✅ <b>Tswira 7orra, msmou7 tnchrha</b> · portrait 4:5 · carré 1:1 · site 16:9\n"
                 f"{esc(photo_credit)} · b7ath: {esc(out['image_query'])}", reply_to=alert_id)
 
