@@ -28,6 +28,7 @@ import signal
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote_plus, urlparse
@@ -36,6 +37,7 @@ from zoneinfo import ZoneInfo
 import feedparser
 import requests
 import trafilatura
+from PIL import Image, ImageFilter, ImageOps
 
 ROOT = Path(__file__).resolve().parent
 SOURCES_FILE = ROOT / "sources.json"
@@ -190,11 +192,11 @@ _OG_IMAGE = re.compile(r'<meta[^>]+(?:property|name)=["\'](?:og:image|twitter:im
                        r'|<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\'](?:og:image|twitter:image)["\']', re.I)
 
 
-def article_data(item: dict) -> tuple[str, str]:
-    """Kayrja3 (nass l khabar, lien d tswira)."""
+def article_data(item: dict) -> tuple[str, list[str]]:
+    """Kayrja3 (nass l khabar, liens d tsawer mrrtbin: og:image 9bel tswira d RSS)."""
     text = _JUNK_TAIL.sub("", html_to_text(item["content_html"])).strip()
-    image = item.get("image", "")
-    if (len(text) < 400 or not image) and not item["gnews"] and item["link"]:
+    images = []
+    if not item["gnews"] and item["link"]:
         try:
             r = http.get(item["link"], timeout=20)
             r.raise_for_status()
@@ -202,9 +204,9 @@ def article_data(item: dict) -> tuple[str, str]:
                 extracted = trafilatura.extract(r.text, include_comments=False, include_tables=False) or ""
                 if len(extracted) > len(text):
                     text = extracted
-            if not image:
-                og = _OG_IMAGE.search(r.text)
-                image = html.unescape((og.group(1) or og.group(2))) if og else ""
+            og = _OG_IMAGE.search(r.text)
+            if og:
+                images.append(html.unescape(og.group(1) or og.group(2)))
         except requests.RequestException as e:
             log(f"[article KO] {item['link']}: {e.__class__.__name__}")
     if len(text) < 100:
@@ -213,7 +215,62 @@ def article_data(item: dict) -> tuple[str, str]:
             text = summary
     text = _JUNK_TAIL.sub("", _JUNK_LINE.sub("", text))
     text = re.sub(r"\n\s*\n+", "\n\n", text).strip()
-    return text[:MAX_TEXT_FOR_AI], image
+    if item.get("image"):
+        images.append(item["image"])
+    return text[:MAX_TEXT_FOR_AI], images
+
+
+# ---------------------------------------------------------------- tsawer
+
+INSTA_SIZE = (1080, 1350)  # portrait 4:5
+_WP_SIZE = re.compile(r"-\d{2,4}x\d{2,4}(?=\.(?:jpe?g|png|webp)(?:\?|$))", re.I)
+
+
+def download_image(url: str) -> Image.Image | None:
+    try:
+        r = http.get(url, timeout=20)
+        if not r.ok or len(r.content) > 15_000_000:
+            return None
+        img = Image.open(BytesIO(r.content))
+        img.load()
+        return ImageOps.exif_transpose(img).convert("RGB")
+    except (requests.RequestException, OSError, ValueError):
+        return None
+
+
+def best_image(urls: list[str]) -> Image.Image | None:
+    """Kayjereb l asl (bla -800x450 dyal WordPress) w kaykhtar akbar tswira."""
+    candidates = []
+    for u in urls:
+        full = _WP_SIZE.sub("", u)
+        if full != u:
+            candidates.append(full)
+        candidates.append(u)
+    best = None
+    for u in dict.fromkeys(candidates):
+        img = download_image(u)
+        if img and (best is None or img.width * img.height > best.width * best.height):
+            best = img
+        if best and best.width >= INSTA_SIZE[0]:
+            break
+    return best
+
+
+def insta_image(img: Image.Image) -> bytes:
+    """1080x1350: tswira kamla f l wost, w nafs tswira mdbbla (blur) f l khalfiya."""
+    w, h = INSTA_SIZE
+    if img.width / img.height <= w / h * 1.15:
+        canvas = ImageOps.fit(img, INSTA_SIZE, Image.LANCZOS)  # deja portrait: crop khfif
+    else:
+        canvas = ImageOps.fit(img, INSTA_SIZE, Image.LANCZOS).filter(ImageFilter.GaussianBlur(40))
+        canvas = Image.blend(canvas, Image.new("RGB", INSTA_SIZE, (0, 0, 0)), 0.35)
+        fg = ImageOps.contain(img, (w, h), Image.LANCZOS)
+        if fg.width < w:  # tswira sghira: kbberha l 3ard kamel
+            fg = img.resize((w, round(img.height * w / img.width)), Image.LANCZOS)
+        canvas.paste(fg, (0, (h - fg.height) // 2))
+    out = BytesIO()
+    canvas.save(out, "JPEG", quality=95, optimize=True, subsampling=0)
+    return out.getvalue()
 
 
 # ---------------------------------------------------------------- gemini
@@ -470,25 +527,25 @@ def tg_send(text_html: str, reply_to: int | None = None, preview: bool = False) 
     return msg_id
 
 
-def tg_photo(image_url: str, caption_html: str) -> int | None:
-    """Kaysifet tswira b caption. Ila ma tqadetch, kayrja3 None (w process kaysifet text)."""
+def tg_file(method: str, field: str, data_bytes: bytes, caption_html: str = "",
+            reply_to: int | None = None) -> int | None:
+    """sendPhoto (preview, Telegram kaydghetha) wla sendDocument (quality kamla)."""
     if DRY_RUN:
-        print("-" * 60 + f"\n[PHOTO] {image_url}\n" + caption_html + "\n", flush=True)
+        print("-" * 60 + f"\n[{method} {len(data_bytes) // 1024} KB]\n" + caption_html + "\n", flush=True)
         return -1
-    data = {"chat_id": TELEGRAM_CHAT_ID, "caption": caption_html[:1024], "parse_mode": "HTML"}
-    api = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+    data = {"chat_id": TELEGRAM_CHAT_ID, "parse_mode": "HTML"}
+    if caption_html:
+        data["caption"] = caption_html[:1024]
+    if reply_to:
+        data["reply_parameters"] = json.dumps({"message_id": reply_to, "allow_sending_without_reply": True})
     try:
-        img = http.get(image_url, timeout=20)
-        ok_img = img.ok and img.headers.get("content-type", "").startswith("image") and len(img.content) < 10_000_000
-        if ok_img:
-            r = http.post(api, data=data, files={"photo": ("image.jpg", img.content)}, timeout=60)
-        else:
-            r = http.post(api, data={**data, "photo": image_url}, timeout=60)
+        r = http.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/{method}", data=data,
+                      files={field: ("saispresse-insta.jpg", data_bytes, "image/jpeg")}, timeout=60)
         if r.ok:
             return r.json()["result"]["message_id"]
-        log(f"[telegram photo KO] HTTP {r.status_code} {r.text[:200]}")
+        log(f"[telegram {method} KO] HTTP {r.status_code} {r.text[:200]}")
     except requests.RequestException as e:
-        log(f"[telegram photo KO] {e.__class__.__name__}")
+        log(f"[telegram {method} KO] {e.__class__.__name__}")
     return None
 
 
@@ -501,10 +558,17 @@ def process(item: dict, number: int, score: int) -> None:
     header = (f"━━━━━━━━━━━━━━━━\n"
               f"🔴 <b>خبر {number}</b> · ⭐ {score}/10 · {esc(item['source'])} · {when}\n\n"
               f"<b>{esc(item['title'])}</b>\n<a href=\"{html.escape(item['link'])}\">فتح الخبر</a>")
-    text, image = ("", "") if NO_AI else article_data(item)
-    alert_id = tg_photo(image, header) if image else None
+    text, image_urls = ("", []) if NO_AI else article_data(item)
+    img = best_image(image_urls) if image_urls else None
+    insta = insta_image(img) if img else None
+    alert_id = tg_file("sendPhoto", "photo", insta, header) if insta else None
     if alert_id is None:
-        alert_id = tg_send(header, preview=not image)
+        alert_id = tg_send(header, preview=True)
+    elif img.width < 800:
+        tg_send(f"⚠️ Tswira l asliya sghira ({img.width}×{img.height}): quality ghatkoun m3ettla. Bdelha.",
+                reply_to=alert_id)
+    if insta:
+        tg_file("sendDocument", "document", insta, "🖼 HD 1080×1350 (Instagram)", reply_to=alert_id)
 
     if NO_AI:
         return
