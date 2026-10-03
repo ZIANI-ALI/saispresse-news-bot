@@ -1,0 +1,56 @@
+name: News bot
+
+on:
+  schedule:
+    # Kol job kaydour ~55 min; concurrency kaykhalli job jdida f queue, donc tghtiya 24/24.
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Ch7al d d9i9a ybqa ydour (0 = dowra we7da)"
+        default: "5"
+
+concurrency:
+  group: news-bot
+  cancel-in-progress: false
+
+jobs:
+  run:
+    # Schedule kaykhdem ghir ila variable NEWS_BOT_ENABLED = true (Settings > Secrets and variables > Actions > Variables).
+    if: github.event_name == 'workflow_dispatch' || vars.NEWS_BOT_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - run: pip install -r requirements.txt
+
+      - name: Restore state (akhbar li tsiftu)
+        uses: actions/cache/restore@v4
+        with:
+          path: state
+          key: news-bot-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: news-bot-state-
+
+      - name: Run bot
+        run: python bot.py
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODELS: ${{ vars.GEMINI_MODELS || 'gemini-2.5-flash,gemini-2.5-flash-lite' }}
+          RUN_MINUTES: ${{ inputs.minutes || vars.RUN_MINUTES || '55' }}
+          POLL_SECONDS: ${{ vars.POLL_SECONDS || '60' }}
+
+      - name: Save state
+        if: always() && hashFiles('state/seen.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: state
+          key: news-bot-state-${{ github.run_id }}-${{ github.run_attempt }}
