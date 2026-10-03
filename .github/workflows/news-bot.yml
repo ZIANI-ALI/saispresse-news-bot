@@ -47,6 +47,8 @@ jobs:
           GEMINI_MODELS: ${{ vars.GEMINI_MODELS }}
           RUN_MINUTES: ${{ inputs.minutes || vars.RUN_MINUTES || '55' }}
           POLL_SECONDS: ${{ vars.POLL_SECONDS || '60' }}
+          MIN_SCORE: ${{ vars.MIN_SCORE || '7' }}
+          DAILY_MAX: ${{ vars.DAILY_MAX || '30' }}
 
       - name: Save state
         if: always() && hashFiles('state/seen.json') != ''
