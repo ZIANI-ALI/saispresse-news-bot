@@ -11,6 +11,8 @@ Env:
   STATE_FILE           default state/seen.json
   DRY_RUN=1            ytba3 f terminal bla Telegram
   NO_AI=1              bla Gemini (test)
+  DEDUP_HOURS          default 24 (nafs l khabar men source okhra f had l mudda ma kaytsiftsh)
+  REPORT_HOUR          default 22 (rapport youmi: ina source kaynchr lowl)
 """
 
 from __future__ import annotations
@@ -48,6 +50,8 @@ MAX_AGE_HOURS = float(os.environ.get("MAX_AGE_HOURS", "3"))
 GEMINI_MIN_INTERVAL = float(os.environ.get("GEMINI_MIN_INTERVAL", "7"))
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 NO_AI = os.environ.get("NO_AI") == "1"
+DEDUP_HOURS = float(os.environ.get("DEDUP_HOURS", "24"))
+REPORT_HOUR = int(os.environ.get("REPORT_HOUR", "22"))  # sa3a dyal rapport l youmi (Casablanca)
 
 SEEN_TTL = 4 * 86400
 MIN_TEXT_FOR_AI = 200
@@ -253,20 +257,18 @@ def discover_models() -> list[str]:
     return ["gemini-flash-latest", "gemini-flash-lite-latest"]
 
 
-def rewrite(item: dict, text: str) -> dict:
+def gemini_json(system: str, user: str, schema: dict, temperature: float) -> dict:
+    """Appel Gemini b jawab JSON. Kayjereb l models b tartib; 404 kaymse7 l model."""
     global _last_gemini_call, _models
     if not _models:
         _models = discover_models()
-    user = (f"المصدر: {item['source']}\n"
-            f"العنوان الأصلي: {item['title']}\n\n"
-            f"نص الخبر:\n<<<\n{text}\n>>>")
     body = {
-        "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT.replace("{source}", item["source"])}]},
+        "systemInstruction": {"parts": [{"text": system}]},
         "contents": [{"role": "user", "parts": [{"text": user}]}],
         "generationConfig": {
-            "temperature": 0.4,
+            "temperature": temperature,
             "responseMimeType": "application/json",
-            "responseSchema": RESPONSE_SCHEMA,
+            "responseSchema": schema,
         },
     }
     errors = []
@@ -290,12 +292,95 @@ def rewrite(item: dict, text: str) -> dict:
             parts = r.json()["candidates"][0]["content"]["parts"]
             raw = "".join(p.get("text", "") for p in parts if not p.get("thought"))
             out = json.loads(raw)
-            if all(out.get(k, "").strip() for k in ("title", "article", "instagram")):
+            if all(k in out for k in schema["required"]):
                 return out
             errors.append(f"{model}: jawab naqes")
         except (KeyError, IndexError, ValueError) as e:
             errors.append(f"{model}: {e.__class__.__name__}")
     raise GeminiError(" | ".join(errors))
+
+
+def rewrite(item: dict, text: str) -> dict:
+    user = (f"المصدر: {item['source']}\n"
+            f"العنوان الأصلي: {item['title']}\n\n"
+            f"نص الخبر:\n<<<\n{text}\n>>>")
+    out = gemini_json(SYSTEM_PROMPT.replace("{source}", item["source"]), user, RESPONSE_SCHEMA, 0.4)
+    if not all(str(out.get(k, "")).strip() for k in ("title", "article", "instagram")):
+        raise GeminiError("jawab khawi")
+    return out
+
+
+# ---------------------------------------------------------------- dedup
+
+_STOP = set("""في من على إلى الى عن مع بعد قبل حول ضد خلال بين عند منذ حتى هذا هذه ذلك التي الذي الذين
+ما لا لم لن قد كان كانت يكون و أو او ثم بل أن ان إن كما وفق حسب عبر أمام امام دون غير كل بعض أي اي هو هي هم
+نحو لدى ضمن يتم تم جديد جديده عاجل فيديو صور بالفيديو بالصور le la les de des du un une et en au aux pour sur
+par avec dans est the of and to in for on""".split())
+_PREFIXES = ("وال", "بال", "فال", "كال", "لل", "ال")
+
+
+def title_tokens(title: str) -> set[str]:
+    t = re.sub(r"[\u064B-\u0652\u0640]", "", title.lower())
+    t = re.sub(r"[إأآا]", "ا", t).replace("ى", "ي").replace("ة", "ه").replace("ؤ", "و").replace("ئ", "ي")
+    t = re.sub(r"[^\w\s]", " ", t)
+    out = set()
+    for w in t.split():
+        for p in _PREFIXES:
+            if w.startswith(p) and len(w) - len(p) >= 3:
+                w = w[len(p):]
+                break
+        if len(w) >= 3 and w not in _STOP:
+            out.add(w)
+    return out
+
+
+def overlap(a: set[str], b: set[str]) -> tuple[float, int]:
+    if not a or not b:
+        return 0.0, 0
+    n = len(a & b)
+    return n / min(len(a), len(b)), n
+
+
+DEDUP_PROMPT = """أنت محرر أخبار. يصلك خبر جديد وقائمة أخبار سبق نشرها.
+حدد هل الخبر الجديد يغطي نفس الحدث بالضبط (نفس الواقعة أو نفس التصريح أو نفس البلاغ) لأحد الأخبار السابقة، حتى لو اختلفت الصياغة أو المصدر.
+إذا كان الخبر الجديد تطوراً جديداً أو زاوية مختلفة أو حدثاً آخر مرتبطاً بنفس الموضوع، فهو ليس مكرراً.
+أجب بـ duplicate_of = رقم الخبر المكرر، أو -1 إذا لم يكن مكرراً."""
+
+DEDUP_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {"duplicate_of": {"type": "INTEGER"}},
+    "required": ["duplicate_of"],
+}
+
+
+def find_duplicate(item: dict, stories: list[dict]) -> dict | None:
+    """Kayrja3 l story li had l khabar tkrar dyalha, wla None."""
+    tokens = title_tokens(item["title"])
+    scored = []
+    for st in stories:
+        ratio, n = overlap(tokens, set(st["tokens"]))
+        if ratio >= 0.4 and n >= 3:
+            scored.append((ratio, n, st))
+    if not scored:
+        return None
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    best = scored[0][2]
+    best_tokens = set(best["tokens"])
+    jaccard = len(tokens & best_tokens) / len(tokens | best_tokens)
+    if jaccard >= 0.75 and len(tokens & best_tokens) >= 5:
+        return best  # wad7: nafs l 3onwan ta9riban
+    if NO_AI:
+        return None
+    candidates = [st for _, _, st in scored[:6]]
+    listing = "\n".join(f"{i}. {st['title']}" for i, st in enumerate(candidates))
+    try:
+        out = gemini_json(DEDUP_PROMPT, f"الخبر الجديد: {item['title']}\n\nالأخبار السابقة:\n{listing}",
+                          DEDUP_SCHEMA, 0.0)
+        idx = int(out["duplicate_of"])
+        return candidates[idx] if 0 <= idx < len(candidates) else None
+    except (GeminiError, ValueError, TypeError) as e:
+        log(f"[dedup KO] {e}")
+        return None
 
 
 # ---------------------------------------------------------------- telegram
@@ -368,13 +453,52 @@ def process(item: dict) -> None:
 
 # ---------------------------------------------------------------- main
 
+def remember_story(state: dict, item: dict) -> None:
+    state["stories"].append({"ts": item["ts"], "title": item["title"], "source": item["source"],
+                             "tokens": sorted(title_tokens(item["title"]))})
+
+
+def count(state: dict, source: str, kind: str) -> None:
+    day = datetime.now(TZ).strftime("%Y-%m-%d")
+    per_day = state["stats"].setdefault(day, {})
+    per_day.setdefault(source, {"first": 0, "dup": 0})[kind] += 1
+
+
+def maybe_report(state: dict, sources: list[dict]) -> None:
+    now = datetime.now(TZ)
+    today = now.strftime("%Y-%m-%d")
+    if now.hour < REPORT_HOUR or state.get("last_report") == today:
+        return
+    state["last_report"] = today
+    days = sorted(state["stats"])[-7:]
+    totals = {s["name"]: {"first": 0, "dup": 0} for s in sources}
+    for d in days:
+        for src, c in state["stats"][d].items():
+            t = totals.setdefault(src, {"first": 0, "dup": 0})
+            t["first"] += c["first"]
+            t["dup"] += c["dup"]
+    ranking = sorted(totals.items(), key=lambda kv: (kv[1]["first"], -kv[1]["dup"]), reverse=True)
+    lines = [f"{i}. {esc(name)}: <b>{c['first']}</b> lowl · {c['dup']} mkerrer"
+             for i, (name, c) in enumerate(ranking, 1)]
+    tg_send(f"📊 <b>Rapport ({len(days)} iyam)</b>\n"
+            f"lowl = l source li jab l khabar 9bel l khrin · mkerrer = khabar kan wsel men source okhra\n\n"
+            + "\n".join(lines))
+
+
 def poll_once(state: dict, sources: list[dict]) -> None:
     items = fetch_all(sources)
     now = time.time()
+    state.setdefault("stories", [])
+    state.setdefault("stats", {})
+    state["stories"] = [st for st in state["stories"] if now - st["ts"] <= DEDUP_HOURS * 3600]
+    for old_day in sorted(state["stats"])[:-14]:
+        del state["stats"][old_day]
 
     if not state.get("bootstrapped"):
         for it in items:
             state["seen"][it["id"]] = now
+            if now - it["ts"] <= DEDUP_HOURS * 3600:
+                remember_story(state, it)
         state["bootstrapped"] = True
         save_state(state)
         log(f"Bootstrap: {len(items)} khbar t9yed bla ma ytsifet.")
@@ -388,12 +512,24 @@ def poll_once(state: dict, sources: list[dict]) -> None:
     save_state(state)
 
     fresh.sort(key=lambda it: it["ts"])
-    log(f"{len(items)} items, {len(fresh)} jdad.")
+    sent = 0
     for it in fresh:
         try:
+            dup = find_duplicate(it, state["stories"])
+            if dup:
+                count(state, it["source"], "dup")
+                log(f"[mkerrer] {it['source']}: {it['title'][:60]} == {dup['source']}: {dup['title'][:60]}")
+                continue
+            remember_story(state, it)
+            count(state, it["source"], "first")
+            save_state(state)
             process(it)
+            sent += 1
         except Exception as e:  # khbar we7ed ma khasshch ywa9ef l bot
             log(f"[process KO] {it['link']}: {e!r}")
+    log(f"{len(items)} items, {len(fresh)} jdad, {sent} tsiftu.")
+    maybe_report(state, sources)
+    save_state(state)
 
 
 def main() -> int:
