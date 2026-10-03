@@ -26,7 +26,7 @@ Sources: `sources.json` (`enabled: false` bach t7bes wa7ed). Sites li kaybloquiw
    - `TELEGRAM_CHAT_ID`
    - `GEMINI_API_KEY`
 5. **Test**: Actions → *News bot* → *Run workflow* (5 d9aye9). Awel dowra katsifet "✅ Bot khdam" w ma katsifetsh l akhbar l 9dam.
-6. **Tkhdem 24/24**: f nafs l page → tab *Variables* → `NEWS_BOT_ENABLED` = `true`.
+6. **Tkhdem 24/24**: tab *Variables* → `NEWS_BOT_ENABLED` = `true`, men b3d *Run workflow* mra we7da. Kol run melli ysali kay-lanci run jay bo7do. Bach t7bso: `NEWS_BOT_ENABLED` = `false`.
 
 Variables ikhtiyariyin: `MIN_SCORE`, `DAILY_MAX`, `GEMINI_MODELS`, `POLL_SECONDS`, `RUN_MINUTES`.
 
