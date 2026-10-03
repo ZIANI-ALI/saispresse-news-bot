@@ -1,23 +1,26 @@
 {
-  "_note": "10 sources asasiyin (sri3in + kaygheTTiw kolchi). Lbaqi m7bous (enabled=false): rja3 l rapport dyal 22:00 bach tqarer. type=gnews: Google News (l sites li kaybloquiw RSS).",
+  "_note": "10 sources asasiyin (sri3in + kaygheTTiw kolchi). Lbaqi m7bous (enabled=false): rja3 l rapport dyal 22:00 bach tqarer. type=gnews: Google News (l sites li kaybloquiw RSS). credit: ila kayn, kayt-zad f l akhir dyal النسخة 1 w Instagram.",
   "sources": [
     {
       "name": "وكالة المغرب العربي للأنباء (MAP عربي)",
       "url": "https://www.mapexpress.ma/ar/feed",
       "type": "rss",
-      "enabled": true
+      "enabled": true,
+      "credit": "المصدر: وكالة المغرب العربي للأنباء (و.م.ع)"
     },
     {
       "name": "MapNews (MAP)",
       "url": "mapnews.ma",
       "type": "gnews",
-      "enabled": true
+      "enabled": true,
+      "credit": "المصدر: وكالة المغرب العربي للأنباء (و.م.ع)"
     },
     {
       "name": "MAP Express (FR)",
       "url": "https://www.mapexpress.ma/feed",
       "type": "rss",
-      "enabled": false
+      "enabled": false,
+      "credit": "المصدر: وكالة المغرب العربي للأنباء (و.م.ع)"
     },
     {
       "name": "بوابة المغرب maroc.ma",

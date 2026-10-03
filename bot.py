@@ -152,6 +152,7 @@ def fetch_feed(src: dict) -> list[dict]:
         items.append({
             "id": f"{src['name']}|{uid}",
             "source": src["name"],
+            "credit": src.get("credit", ""),
             "gnews": src["type"] == "gnews",
             "title": title,
             "link": link,
@@ -516,10 +517,11 @@ def process(item: dict, number: int, score: int) -> None:
         log(f"[gemini KO] {item['link']}: {e}")
         tg_send(f"⚠️ Gemini ma jawebsh: {esc(str(e)[:500])}", reply_to=alert_id)
         return
-    tg_send(f"📰 <b>النسخة 1 (كاملة)</b>\n\n<b>{esc(out['title'].strip())}</b>\n\n{esc(out['article'].strip())}",
+    credit = f"\n\n{esc(item['credit'])}" if item.get("credit") else ""
+    tg_send(f"📰 <b>النسخة 1 (كاملة)</b>\n\n<b>{esc(out['title'].strip())}</b>\n\n{esc(out['article'].strip())}{credit}",
             reply_to=alert_id)
     tg_send(f"📱 <b>النسخة 2 (Instagram)</b>\n\n<b>{esc(out['instagram_title'].strip())}</b>\n\n"
-            f"{esc(out['instagram'].strip())}", reply_to=alert_id)
+            f"{esc(out['instagram'].strip())}{credit}", reply_to=alert_id)
 
 
 # ---------------------------------------------------------------- main
