@@ -226,6 +226,11 @@ def article_data(item: dict) -> tuple[str, list[str]]:
 # ---------------------------------------------------------------- tsawer
 
 INSTA_SIZE = (1080, 1350)  # portrait 4:5
+FORMATS = [  # (smiya d l fichier, l 9yas)
+    ("insta-portrait-4x5", INSTA_SIZE),
+    ("carre-1x1", (1080, 1080)),
+    ("site-16x9", (1200, 675)),
+]
 _WP_SIZE = re.compile(r"-\d{2,4}x\d{2,4}(?=\.(?:jpe?g|png|webp)(?:\?|$))", re.I)
 
 
@@ -265,7 +270,7 @@ def pexels_image(query: str) -> tuple[Image.Image, str] | None:
         return None
     try:
         r = http.get("https://api.pexels.com/v1/search", headers={"Authorization": PEXELS_KEY},
-                     params={"query": query, "orientation": "portrait", "per_page": 8, "size": "large"},
+                     params={"query": query, "orientation": "landscape", "per_page": 8, "size": "large"},
                      timeout=20)
         r.raise_for_status()
         photos = r.json().get("photos", [])
@@ -276,27 +281,39 @@ def pexels_image(query: str) -> tuple[Image.Image, str] | None:
         log(f"[pexels] walou l '{query}'")
         return None
     photo = random.choice(photos[:5])  # bach ma ttkerrarch nafs tswira
-    img = download_image(photo["src"]["original"] + "?auto=compress&cs=tinysrgb&fit=crop&w=1080&h=1350")
+    img = download_image(photo["src"]["original"] + "?auto=compress&cs=tinysrgb&w=2000")
     if not img:
         return None
     return img, f"Photo: {photo.get('photographer', '')} / Pexels"
 
 
-def insta_image(img: Image.Image) -> bytes:
-    """1080x1350: tswira kamla f l wost, w nafs tswira mdbbla (blur) f l khalfiya."""
-    w, h = INSTA_SIZE
-    if img.width / img.height <= w / h * 1.15:
-        canvas = ImageOps.fit(img, INSTA_SIZE, Image.LANCZOS)  # deja portrait: crop khfif
+def render(img: Image.Image, size: tuple[int, int], crop: bool = False) -> bytes:
+    """Tswira b l 9yas l matlub. Ila l format bzaf mkhtalef w crop=False: tswira kamla f l wost
+    w nafs tswira mdbbla (blur) f l khawi, bach ma ytqta3 walou (wjouh, ktaba)."""
+    w, h = size
+    ratio_img, ratio_out = img.width / img.height, w / h
+    if crop or max(ratio_img, ratio_out) / min(ratio_img, ratio_out) <= 1.15:
+        canvas = ImageOps.fit(img, size, Image.LANCZOS)
     else:
-        canvas = ImageOps.fit(img, INSTA_SIZE, Image.LANCZOS).filter(ImageFilter.GaussianBlur(40))
-        canvas = Image.blend(canvas, Image.new("RGB", INSTA_SIZE, (0, 0, 0)), 0.35)
-        fg = ImageOps.contain(img, (w, h), Image.LANCZOS)
-        if fg.width < w:  # tswira sghira: kbberha l 3ard kamel
+        canvas = ImageOps.fit(img, size, Image.LANCZOS).filter(ImageFilter.GaussianBlur(40))
+        canvas = Image.blend(canvas, Image.new("RGB", size, (0, 0, 0)), 0.35)
+        fg = ImageOps.contain(img, size, Image.LANCZOS)
+        if ratio_img > ratio_out and fg.width < w:  # tswira sghira: kbberha l 3ard kamel
             fg = img.resize((w, round(img.height * w / img.width)), Image.LANCZOS)
-        canvas.paste(fg, (0, (h - fg.height) // 2))
+        elif ratio_img <= ratio_out and fg.height < h:
+            fg = img.resize((round(img.width * h / img.height), h), Image.LANCZOS)
+        canvas.paste(fg, ((w - fg.width) // 2, (h - fg.height) // 2))
     out = BytesIO()
     canvas.save(out, "JPEG", quality=95, optimize=True, subsampling=0)
     return out.getvalue()
+
+
+def insta_image(img: Image.Image) -> bytes:
+    return render(img, INSTA_SIZE)
+
+
+def all_formats(img: Image.Image, crop: bool = False) -> list[tuple[str, bytes]]:
+    return [(f"{name}.jpg", render(img, size, crop)) for name, size in FORMATS]
 
 
 # ---------------------------------------------------------------- gemini
@@ -578,6 +595,26 @@ def tg_file(method: str, field: str, data_bytes: bytes, caption_html: str = "",
     return None
 
 
+def tg_album(files: list[tuple[str, bytes]], caption_html: str, reply_to: int | None = None) -> None:
+    """Kaysifet bzaf d fichiers (documents, quality kamla) f message we7da."""
+    if DRY_RUN:
+        sizes = ", ".join(f"{n} {len(b) // 1024}KB" for n, b in files)
+        print("-" * 60 + f"\n[ALBUM {sizes}]\n" + caption_html + "\n", flush=True)
+        return
+    media = [{"type": "document", "media": f"attach://f{i}"} for i in range(len(files))]
+    media[-1].update({"caption": caption_html[:1024], "parse_mode": "HTML"})
+    data = {"chat_id": TELEGRAM_CHAT_ID, "media": json.dumps(media)}
+    if reply_to:
+        data["reply_parameters"] = json.dumps({"message_id": reply_to, "allow_sending_without_reply": True})
+    try:
+        r = http.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMediaGroup", data=data,
+                      files={f"f{i}": (n, b, "image/jpeg") for i, (n, b) in enumerate(files)}, timeout=90)
+        if not r.ok:
+            log(f"[telegram album KO] HTTP {r.status_code} {r.text[:200]}")
+    except requests.RequestException as e:
+        log(f"[telegram album KO] {e.__class__.__name__}")
+
+
 def esc(s: str) -> str:
     return html.escape(s, quote=False)
 
@@ -598,8 +635,8 @@ def process(item: dict, number: int, score: int) -> None:
                 reply_to=alert_id)
     if insta:
         label = ("⚠️ Tswira d l source: référence bark (3endha copyright)" if PEXELS_KEY
-                 else "🖼 HD 1080×1350 (tswira d l source: 3endha copyright)")
-        tg_file("sendDocument", "document", insta, label, reply_to=alert_id)
+                 else "🖼 HD: portrait 4:5 · carré 1:1 · site 16:9 (tswira d l source: 3endha copyright)")
+        tg_album(all_formats(img), label, reply_to=alert_id)
 
     if NO_AI:
         return
@@ -620,8 +657,8 @@ def process(item: dict, number: int, score: int) -> None:
     free = pexels_image(out.get("image_query", ""))
     if free:
         img_free, photo_credit = free
-        tg_file("sendDocument", "document", insta_image(img_free),
-                f"✅ <b>Tswira 7orra, msmou7 tnchrha</b> (HD 1080×1350)\n"
+        tg_album(all_formats(img_free, crop=True),
+                f"✅ <b>Tswira 7orra, msmou7 tnchrha</b> · portrait 4:5 · carré 1:1 · site 16:9\n"
                 f"{esc(photo_credit)} · b7ath: {esc(out['image_query'])}", reply_to=alert_id)
 
 
