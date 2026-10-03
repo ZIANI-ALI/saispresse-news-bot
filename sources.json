@@ -2,10 +2,22 @@
   "_note": "10 sources asasiyin (sri3in + kaygheTTiw kolchi). Lbaqi m7bous (enabled=false): rja3 l rapport dyal 22:00 bach tqarer. type=gnews: Google News (l sites li kaybloquiw RSS).",
   "sources": [
     {
-      "name": "وكالة المغرب العربي للأنباء (MAP Express)",
-      "url": "https://www.mapexpress.ma/feed",
+      "name": "وكالة المغرب العربي للأنباء (MAP عربي)",
+      "url": "https://www.mapexpress.ma/ar/feed",
       "type": "rss",
       "enabled": true
+    },
+    {
+      "name": "MapNews (MAP)",
+      "url": "mapnews.ma",
+      "type": "gnews",
+      "enabled": true
+    },
+    {
+      "name": "MAP Express (FR)",
+      "url": "https://www.mapexpress.ma/feed",
+      "type": "rss",
+      "enabled": false
     },
     {
       "name": "بوابة المغرب maroc.ma",
