@@ -1,5 +1,5 @@
 {
-  "_note": "10 sources asasiyin (sri3in + kaygheTTiw kolchi). Lbaqi m7bous (enabled=false): rja3 l rapport dyal 22:00 bach tqarer. type=gnews: Google News (l sites li kaybloquiw RSS). credit: ila kayn, kayt-zad f l akhir dyal النسخة 1 w Instagram.",
+  "_note": "10 sources asasiyin (sri3in + kaygheTTiw kolchi). Lbaqi m7bous (enabled=false): rja3 l rapport dyal 22:00 bach tqarer. type=gnews: Google News (l sites li kaybloquiw RSS). credit: ila kayn, kayt-zad f l akhir dyal النسخة 1 w Instagram. intl=true: source dawliya, kaytsifet ghir l khabar li 3ndo score >= HIGH_SCORE.",
   "sources": [
     {
       "name": "وكالة المغرب العربي للأنباء (MAP عربي)",
@@ -189,6 +189,34 @@
       "url": "moroccoworldnews.com",
       "type": "gnews",
       "enabled": false
+    },
+    {
+      "name": "الجزيرة نت",
+      "url": "https://www.aljazeera.net/aljazeerarss/a7c186be-1baa-4bd4-9d80-a84db769f779/73d0e1b4-532f-45ef-b135-bfdff8b8cab9",
+      "type": "rss",
+      "enabled": true,
+      "intl": true
+    },
+    {
+      "name": "سكاي نيوز عربية",
+      "url": "https://www.skynewsarabia.com/rss.xml",
+      "type": "rss",
+      "enabled": true,
+      "intl": true
+    },
+    {
+      "name": "فرانس 24 عربي",
+      "url": "https://www.france24.com/ar/rss",
+      "type": "rss",
+      "enabled": true,
+      "intl": true
+    },
+    {
+      "name": "بي بي سي عربي",
+      "url": "https://feeds.bbci.co.uk/arabic/rss.xml",
+      "type": "rss",
+      "enabled": true,
+      "intl": true
     }
   ]
 }
