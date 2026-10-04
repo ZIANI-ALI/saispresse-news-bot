@@ -51,4 +51,6 @@ DRY_RUN=1 GEMINI_API_KEY=... python bot.py
 
 **AI upscale:** ila tswira sghira (zoom > ×1 f portrait), bot kaykebbrha b Real-ESRGAN (`models/realesr-general-x4v3.onnx`, BSD-3) 3la CPU (~4-7 s). Tswira kat9ra bla mochkil, walakin copyright dyal tswira l asliya kayb9a.
 
-**Tswira dyal chakhsiya:** ila l khabar 3la chakhsiya 3amma (wazir, la3ib...), bot kayqelleb 3la tswira dyalha f Wikipedia/Wikimedia Commons (licence 7orra, ghir Commons) w kaysifetha m3a l credit li khass yban f l poste.
+**Tswira dyal chakhsiya (Google):** ila l khabar 3la chakhs wa7ed w tswira d l source sghira, bot kayqelleb f Google Images (via https://serper.dev, secret `SERPER_API_KEY`) 3la tswira HD (≥1000px) w kaysifetha ka référence (3endha copyright).
+
+**Relay (MAP...):** MAP, Barlamane, Kech24, Goud kaybloquiw GitHub. Dir Cloudflare Worker fabor b `relay/worker.js`, w zid secrets `RELAY_URL` (lien d worker) w `RELAY_KEY` (nafs l mot de passe f worker w GitHub). Bla relay, had sites kaydouzo b Google News (3onwan bark, bla nass bla tswira).

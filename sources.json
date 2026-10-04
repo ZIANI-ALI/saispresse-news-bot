@@ -3,7 +3,7 @@
   "sources": [
     {
       "name": "وكالة المغرب العربي للأنباء (MAP عربي)",
-      "url": "https://www.mapexpress.ma/ar/feed",
+      "url": "https://www.mapexpress.ma/ar/feed/",
       "type": "rss",
       "enabled": true,
       "credit": "المصدر: وكالة المغرب العربي للأنباء (و.م.ع)"

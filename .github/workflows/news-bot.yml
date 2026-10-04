@@ -51,6 +51,9 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
+          RELAY_URL: ${{ secrets.RELAY_URL }}
+          RELAY_KEY: ${{ secrets.RELAY_KEY }}
           GEMINI_MODELS: ${{ vars.GEMINI_MODELS }}
           RUN_MINUTES: ${{ inputs.minutes || vars.RUN_MINUTES || '55' }}
           POLL_SECONDS: ${{ vars.POLL_SECONDS || '60' }}
