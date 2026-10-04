@@ -6,11 +6,11 @@ Kayraqeb ~24 source dyal l akhbar f l Maghrib kol 60 tanya. Kol khabar jdid kayw
 2. **النسخة 1**: nafs l khabar b siyagha jdida (bla zyada, bla na9s, arqam/asma/iqtibasat kif ma homa).
 3. **النسخة 2**: version qsira l Instagram + hashtags.
 
-**Ghir l mohim:** Gemini kay3ti l kol khabar note d ahamiya mn 10. Kolchi li 3ndo `HIGH_SCORE` (8) wla ktar kaytsifet bla 7add. Li 3ndo `MIN_SCORE` (7): khabar wa7ed f kol sa3a, l khrin kaytse77aw. Tqder tbdel had l ar9am men Variables.
+**Ghir l mohim:** Gemini kay3ti l kol khabar note d ahamiya mn 10. Kolchi li 3ndo `MIN_SCORE` (7) wla ktar kaytsifet bla 7add (bla limite f sa3a). `HIGH_SCORE` (8): ghir l 9-10 (> 8) kaykounou 3ajil. Tqder tbdel had l ar9am men Variables.
 
-**Akhbar dawliya:** sources b `"intl": true` (سكاي نيوز عربية، بي بي سي عربي; الجزيرة w فرانس 24 m7bousin: feed bati2). Khabar dawli (men had sources wla men site maghribi) kaytsifet ghir ila score >= `HIGH_SCORE` (8).
+**Akhbar dawliya:** sources b `"intl": true` (سكاي نيوز عربية، بي بي سي عربي; الجزيرة w فرانس 24 m7bousin: feed bati2). Khabar dawli kaytsifet b7al l akhrin: score >= `MIN_SCORE` (7).
 
-**Kora:** sources رياضة (هسبورت، سكاي نيوز عربية رياضة، ماركا ريال مدريد/برشلونة، آس، موندو ديبورتيفو برشلونة/ريال مدريد). Gemini (judge) kay3ref l khabar dyal kora (`football`) w kay3tih score b slom khas: 8 = natija d l mountakhab, ay match d l Botola, l fera9 l maghribiya f Afri9ya, l mountakhabat l kbar, transfer d la3ib maghribi wla star, akhbar kbar d Real/Barça; 7 = akhbar Real/Barça dyal Marca, akhbar l fera9 l maghribiya, la3ibin maghariba f Oropa. Kora kattsifet mn 7+ 7tta ila kant dawliya, w l 7 3ndhom "wa7ed f sa3a" dyalhom (machi nafs dyal l akhbar lokhrin).
+**Kora:** sources رياضة (هسبورت، سكاي نيوز عربية رياضة، ماركا ريال مدريد/برشلونة، آس، موندو ديبورتيفو برشلونة/ريال مدريد). Gemini (judge) kay3ref l khabar dyal kora (`football`) w kay3tih score b slom khas: 8 = natija d l mountakhab, ay match d l Botola, l fera9 l maghribiya f Afri9ya, l mountakhabat l kbar, transfer d la3ib maghribi wla star, akhbar kbar d Real/Barça; 7 = akhbar Real/Barça dyal Marca, akhbar l fera9 l maghribiya, la3ibin maghariba f Oropa. Kora kattsifet mn 7+ 7tta ila kant dawliya.
 
 **Khabar bla nass** (Google News / site kayblocki): ma kaytsiftsh; bot kaytsna 7tta source okhra tjib nafs l khabar b l article, w 3ad kaysifeto kamel (cover + النسخة 1/2). Ghir ila score 9-10: kaytsifet daba b cover men l 3onwan bark (bla versions), w mnin ywsel l article men source okhra kaytsifet tani kamel ("📄 النص الكامل وصل").
 
@@ -45,7 +45,11 @@ Variables ikhtiyariyin: `MIN_SCORE`, `HIGH_SCORE`, `GEMINI_MODELS`, `POLL_SECOND
 
 ## Limites Gemini free
 
-Free tier 3ndo limite d requests f l youm (kaytbedel 3la 7sab model). Bot kaykhtar automatiquement a7dath model flash; ila t9ada, kaydouz l flash-lite. Ila t9adaw b jouj, kaywselk ghir l alerte + "Gemini ma jawebsh". L 7ul: 7bes sources li ma kat7tajhoumch.
+Free tier 3ndo limite d requests f l youm, w kol model 3ndo quota dyalo. Bot kaykhtar automatiquement a7dath flash, a7dath flash-lite w flash tani; model li rja3 429 kayt7bes (1 min ila quota d d9i9a, 1 sa3a ila quota d nhar) w kaydouz l li mor.
+
+Ila salaw kolchi models:
+- Akhbar jdad ma kaytjajouch: kayb9aw f tsna w kayt3awdou f dowra jaya (7tta `MAX_AGE_HOURS`, 3 sa3at).
+- Khabar li tsifet (alerte) w Gemini ma ktebch النسخة 1/2: kaydkhel f queue (`retry`), w kayt3awed wa7ed f kol dowra 7tta 12 sa3a. Versions + covers kaywslo reply 3la l alerte.
 
 ## Test local
 
@@ -57,7 +61,7 @@ DRY_RUN=1 GEMINI_API_KEY=... python bot.py
 
 **AI upscale:** ila tswira sghira (zoom > ×1 f portrait), bot kaykebbrha b Real-ESRGAN (`models/realesr-general-x4v3.onnx`, BSD-3) 3la CPU (~4-7 s). Tswira kat9ra bla mochkil, walakin copyright dyal tswira l asliya kayb9a.
 
-**Tswira dyal chakhsiya (Google):** ila l khabar 3la chakhs wa7ed w tswira d l source sghira, bot kayqelleb f Google Images (via https://serper.dev, secret `SERPER_API_KEY`) 3la tswira HD (≥1000px) w kaysifetha ka référence (3endha copyright).
+**Tswira dyal chakhsiya (Google):** ila l khabar 3la chakhs wa7ed w tswira d l source sghira, bot kayqelleb f Google Images (via https://serper.dev, secret `SERPER_API_KEY`) 3la tswira HD (≥1000px) w kaysifetha ka référence (3endha copyright). Serper 3ndo 2500 credit mra wa7da (machi kol chhar): bot kay7seb kol recherche w rapport 22:00 kayban ch7al b9a. Ila l compte deja sta3mel chi credits, 7ett `SERPER_CREDITS` (Variables) = ch7al b9a f serper.dev.
 
 **Relay (MAP...):** MAP, Barlamane, Kech24, Goud kaybloquiw GitHub. Dir Cloudflare Worker fabor b `relay/worker.js`, w zid secrets `RELAY_URL` (lien d worker) w `RELAY_KEY` (nafs l mot de passe f worker w GitHub). Bla relay, had sites kaydouzo b Google News (3onwan bark, bla nass bla tswira).
 

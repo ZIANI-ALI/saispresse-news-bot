@@ -67,8 +67,9 @@ GEMINI_MIN_INTERVAL = float(os.environ.get("GEMINI_MIN_INTERVAL", "7"))
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 NO_AI = os.environ.get("NO_AI") == "1"
 DEDUP_HOURS = float(os.environ.get("DEDUP_HOURS", "24"))
-MIN_SCORE = int(os.environ.get("MIN_SCORE", "7"))      # ahamiya mn 10: ta7t menha ma kaytsiftsh
-HIGH_SCORE = int(os.environ.get("HIGH_SCORE", "8"))    # >= hadi kolchi; bin MIN w HIGH: wa7ed f sa3a
+MIN_SCORE = int(os.environ.get("MIN_SCORE", "7"))      # ahamiya mn 10: >= hadi kaytsifet kolchi (7tta dawli)
+HIGH_SCORE = int(os.environ.get("HIGH_SCORE", "8"))    # > hadi (9-10): 3ajil, w bla nass kaytsifet daba
+SERPER_CREDITS = int(os.environ.get("SERPER_CREDITS", "2500"))  # credits li kanou f compte mlli bda l compteur
 REPORT_HOUR = int(os.environ.get("REPORT_HOUR", "22"))  # sa3a dyal rapport l youmi (Casablanca)
 
 SEEN_TTL = 4 * 86400
@@ -355,10 +356,15 @@ def pixabay_image(query: str) -> tuple[Image.Image, str] | None:
     return img, f"Photo: {hit.get('user', '')} / Pixabay"
 
 
+serper_calls = 0  # kayt7seb f state (rapport: ch7al b9a mn credits)
+
+
 def google_person_image(name: str, avoid_domain: str = "") -> tuple[Image.Image, str] | None:
     """Tswira HD dyal chakhsiya men Google Images (via Serper). Tsawer 3endhom copyright: référence."""
+    global serper_calls
     if not SERPER_KEY or not name.strip():
         return None
+    serper_calls += 1
     try:
         r = http.post("https://google.serper.dev/images", headers={"X-API-KEY": SERPER_KEY},
                       json={"q": name, "gl": "ma", "hl": "ar", "num": 20}, timeout=20)
@@ -583,6 +589,7 @@ RESPONSE_SCHEMA = {
 }
 
 _last_gemini_call = 0.0
+_cooldown: dict[str, float] = {}  # model -> w9t fach yrja3 (ila quota dyalo salat)
 
 
 class GeminiError(Exception):
@@ -634,6 +641,9 @@ def gemini_json(system: str, user: str, schema: dict, temperature: float, prefer
     }
     errors = []
     order = sorted(_models, key=lambda m: "lite" not in m) if prefer_lite else list(_models)
+    order = [m for m in order if _cooldown.get(m, 0) <= time.time()]
+    if not order:
+        raise GeminiError("quota sala f kolchi models (kan3awdo mn b3d)")
     for model in order:
         wait = _last_gemini_call + GEMINI_MIN_INTERVAL - time.time()
         if wait > 0:
@@ -647,6 +657,8 @@ def gemini_json(system: str, user: str, schema: dict, temperature: float, prefer
             continue
         if r.status_code == 404:
             _models.remove(model)  # model ma b9ach; ila tkhwat l list, kan3awdo discovery
+        if r.status_code == 429:  # quota d d9i9a: 1 min; quota d nhar: n7bsoh sa3a
+            _cooldown[model] = time.time() + (3600 if "PerDay" in r.text else 60)
         if r.status_code != 200:
             errors.append(f"{model}: HTTP {r.status_code} {r.text[:200]}")
             continue
@@ -660,6 +672,10 @@ def gemini_json(system: str, user: str, schema: dict, temperature: float, prefer
         except (KeyError, IndexError, ValueError) as e:
             errors.append(f"{model}: {e.__class__.__name__}")
     raise GeminiError(" | ".join(errors))
+
+
+def gemini_exhausted() -> bool:
+    return bool(_models) and all(_cooldown.get(m, 0) > time.time() for m in _models)
 
 
 def rewrite(item: dict, text: str) -> dict:
@@ -770,6 +786,8 @@ def judge(item: dict, stories: list[dict]) -> tuple[dict | None, int, bool, bool
         return (dup, int(out["importance"]), bool(out.get("international")), bool(out.get("urgent")),
                 bool(out.get("football")))
     except (GeminiError, ValueError, TypeError) as e:
+        if gemini_exhausted():
+            return None, -1, False, False, False  # quota sala: n3awdo had l khabar f dowra jaya
         log(f"[judge KO] {e}")
         return None, MIN_SCORE, False, False, False  # a7san nsifto 3la ma ntlfo khabar kbir
 
@@ -802,17 +820,31 @@ def tg_send(text_html: str, reply_to: int | None = None, preview: bool = False) 
         }
         if reply_to:
             payload["reply_parameters"] = {"message_id": reply_to, "allow_sending_without_reply": True}
-        for _ in range(3):
-            r = http.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", json=payload, timeout=30)
-            if r.status_code == 429:
-                time.sleep(r.json().get("parameters", {}).get("retry_after", 5) + 1)
-                continue
-            if not r.ok:
-                log(f"[telegram KO] HTTP {r.status_code} {r.text[:200]}")
-            else:
-                msg_id = msg_id or r.json()["result"]["message_id"]
-            break
+        try:
+            r = tg_post("sendMessage", 30, json=payload)
+        except requests.RequestException as e:
+            log(f"[telegram KO] {e.__class__.__name__}")
+            continue
+        if not r.ok:
+            log(f"[telegram KO] HTTP {r.status_code} {r.text[:200]}")
+        else:
+            msg_id = msg_id or r.json()["result"]["message_id"]
     return msg_id
+
+
+def tg_post(method: str, timeout: int, **kw) -> requests.Response:
+    """POST l Telegram; ila 429 (bzaf d messages f d9i9a), kantsnaw retry_after w n3awdo."""
+    for _ in range(5):
+        r = http.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/{method}", timeout=timeout, **kw)
+        if r.status_code != 429:
+            return r
+        try:
+            wait = r.json().get("parameters", {}).get("retry_after", 5)
+        except ValueError:
+            wait = 5
+        log(f"[telegram 429] kantsna {wait}s")
+        time.sleep(wait + 1)
+    return r
 
 
 def tg_file(method: str, field: str, data_bytes: bytes, caption_html: str = "",
@@ -827,8 +859,7 @@ def tg_file(method: str, field: str, data_bytes: bytes, caption_html: str = "",
     if reply_to:
         data["reply_parameters"] = json.dumps({"message_id": reply_to, "allow_sending_without_reply": True})
     try:
-        r = http.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/{method}", data=data,
-                      files={field: ("saispresse-insta.jpg", data_bytes, "image/jpeg")}, timeout=60)
+        r = tg_post(method, 60, data=data, files={field: ("saispresse-insta.jpg", data_bytes, "image/jpeg")})
         if r.ok:
             return r.json()["result"]["message_id"]
         log(f"[telegram {method} KO] HTTP {r.status_code} {r.text[:200]}")
@@ -849,8 +880,8 @@ def tg_album(files: list[tuple[str, bytes]], caption_html: str, reply_to: int | 
     if reply_to:
         data["reply_parameters"] = json.dumps({"message_id": reply_to, "allow_sending_without_reply": True})
     try:
-        r = http.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMediaGroup", data=data,
-                      files={f"f{i}": (n, b, "image/jpeg") for i, (n, b) in enumerate(files)}, timeout=90)
+        r = tg_post("sendMediaGroup", 90, data=data,
+                    files={f"f{i}": (n, b, "image/jpeg") for i, (n, b) in enumerate(files)})
         if not r.ok:
             log(f"[telegram album KO] HTTP {r.status_code} {r.text[:200]}")
     except requests.RequestException as e:
@@ -862,7 +893,8 @@ def esc(s: str) -> str:
 
 
 def process(item: dict, number: int, score: int, urgent: bool = False,
-            data: tuple[str, list[str]] | None = None, followup: bool = False) -> None:
+            data: tuple[str, list[str]] | None = None, followup: bool = False,
+            retry: list | None = None) -> None:
     when = datetime.fromtimestamp(item["ts"], TZ).strftime("%H:%M")
     header = (f"━━━━━━━━━━━━━━━━\n"
               + ("📄 <b>النص الكامل وصل</b> (l khabar tsifet 9bel ghir b l 3onwan)\n" if followup else "")
@@ -899,14 +931,56 @@ def process(item: dict, number: int, score: int, urgent: bool = False,
         out = rewrite(item, text)
     except GeminiError as e:
         log(f"[gemini KO] {item['link']}: {e}")
-        tg_send(f"⚠️ Gemini ma jawebsh: {esc(str(e)[:500])}", reply_to=alert_id)
+        if retry is None:
+            tg_send(f"⚠️ Gemini ma jawebsh: {esc(str(e)[:500])}", reply_to=alert_id)
+            return
+        del retry[:-199]  # max 200 f queue
+        retry.append({"item": {k: item.get(k) for k in ("title", "link", "source", "credit", "ts")},
+                      "text": text, "images": image_urls, "alert_id": alert_id, "urgent": urgent,
+                      "since": time.time()})
+        tg_send("⏳ Gemini ma jawebsh daba (quota). النسخة 1 w 2 w covers ghaywslo mn b3d, reply 3la had l khabar.",
+                reply_to=alert_id)
         return
+    versions(item, out, img, small, upscaled, alert_id, urgent)
+
+
+def versions(item: dict, out: dict, img, small, upscaled: bool, alert_id: int | None, urgent: bool) -> None:
     credit = f"\n\n{esc(item['credit'])}" if item.get("credit") else ""
     tg_send(f"📰 <b>النسخة 1 (كاملة)</b>\n\n<b>{esc(out['title'].strip())}</b>\n\n{esc(out['article'].strip())}{credit}",
             reply_to=alert_id)
     tg_send(f"📱 <b>النسخة 2 (Instagram)</b>\n\n<b>{esc(out['instagram_title'].strip())}</b>\n\n"
             f"{esc(out['instagram'].strip())}{credit}", reply_to=alert_id)
     covers(item, out, img, small, upscaled, alert_id, urgent=urgent)
+
+
+RETRY_HOURS = 12
+
+
+def retry_pending(state: dict) -> None:
+    """Akhbar tsiftu (alerte) walakin Gemini ma jawebch (quota): kan3awdo wa7ed f kol dowra."""
+    queue = state.setdefault("retry", [])
+    while queue and time.time() - queue[0]["since"] > RETRY_HOURS * 3600:
+        old = queue.pop(0)
+        log(f"[retry tla7] {old['item']['link']}")
+        tg_send(f"⚠️ Gemini ma jawebsh {RETRY_HOURS} sa3a: had l khabar b9a bla النسخة 1/2.",
+                reply_to=old["alert_id"])
+    if not queue:
+        return
+    job = queue[0]
+    item = job["item"]
+    try:
+        out = rewrite(item, job["text"])
+    except GeminiError as e:
+        log(f"[retry mazal] {len(queue)} f queue: {str(e)[:120]}")
+        return
+    queue.pop(0)
+    save_state(state)
+    log(f"[retry wsel] {item['source']}: {item['title'][:60]}")
+    img = best_image(job["images"]) if job["images"] else None
+    small, upscaled = (img.size if img else None), False
+    if img:
+        img, upscaled = enhance(img)
+    versions(item, out, img, small, upscaled, job["alert_id"], job["urgent"])
 
 
 TITLE_PROMPT = """أنت محرر في جريدة إلكترونية مغربية. وصلك عنوان خبر فقط، بدون نص الخبر.
@@ -1022,9 +1096,14 @@ def maybe_report(state: dict, sources: list[dict]) -> None:
     ranking = sorted(totals.items(), key=lambda kv: (kv[1]["first"], -kv[1]["dup"]), reverse=True)
     lines = [f"{i}. {esc(name)}: <b>{c['first']}</b> lowl · {c['dup']} mkerrer"
              for i, (name, c) in enumerate(ranking, 1)]
+    used = state.get("serper", 0)
+    serper = (f"Serper (Google tsawer): <b>{used}</b> recherche · b9aw ~<b>{max(0, SERPER_CREDITS - used)}</b> credit\n"
+              if SERPER_KEY else "")
     tg_send(f"📊 <b>Rapport ({len(days)} iyam)</b>\n"
-            f"Akhbar tsiftu lyoum: <b>{state.get('sent', {}).get(today, 0)}</b> (score ≥ {HIGH_SCORE} kolchi · {MIN_SCORE}+ wa7ed f sa3a)\n"
-            f"lowl = l source li jab l khabar 9bel l khrin · mkerrer = khabar kan wsel men source okhra\n\n"
+            f"Akhbar tsiftu lyoum: <b>{state.get('sent', {}).get(today, 0)}</b> (score ≥ {MIN_SCORE})"
+            f" · mn lwel: <b>{state.get('total', 0)}</b>\n"
+            + serper
+            + "lowl = l source li jab l khabar 9bel l khrin · mkerrer = khabar kan wsel men source okhra\n\n"
             + "\n".join(lines))
 
 
@@ -1055,11 +1134,15 @@ def poll_once(state: dict, sources: list[dict]) -> None:
     save_state(state)
 
     fresh.sort(key=lambda it: it["ts"])
-    sent = 0
+    sent = deferred = 0
     today = datetime.now(TZ).strftime("%Y-%m-%d")
     for it in fresh:
         try:
             dup, score, intl, urgent, foot = judge(it, state["stories"])
+            if score < 0:  # Gemini quota sala: ma nsiftouhch bla judge, n3awdo mn b3d (7tta MAX_AGE_HOURS)
+                state["seen"].pop(it["id"], None)
+                deferred += 1
+                continue
             waiting = dup.get("pending") if dup else None
             if dup and not waiting:
                 count(state, it["source"], "dup")
@@ -1074,17 +1157,9 @@ def poll_once(state: dict, sources: list[dict]) -> None:
                 count(state, it["source"], "first")
             urgent = urgent and score > HIGH_SCORE  # 3ajil ghir 9-10
             sent_today = state.setdefault("sent", {}).get(today, 0)
-            hour = datetime.now(TZ).strftime("%Y-%m-%d %H")
-            if score < (HIGH_SCORE if (it.get("intl") or intl) and not foot else MIN_SCORE):  # dawli: ghir l kbar (kora: 7+)
+            if score < MIN_SCORE:
                 log(f"[ma mohimch {score}/10] {it['source']}: {it['title'][:70]}")
                 remember_story(state, it)
-                save_state(state)
-                continue
-            slot = "foot_hour" if foot else "mid_hour"  # kora 3ndha sa3a dyalha
-            if score < HIGH_SCORE and state.get(slot) == hour:  # dejà tsifet wa7ed mutawasit had sa3a
-                log(f"[wa7ed f sa3a {score}/10] {it['source']}: {it['title'][:70]}")
-                if not waiting:
-                    remember_story(state, it)
                 save_state(state)
                 continue
             data = ("", []) if NO_AI else article_data(it)
@@ -1104,15 +1179,25 @@ def poll_once(state: dict, sources: list[dict]) -> None:
                 log(f"[nass wsel] {it['source']}: {it['title'][:60]} == {dup['source']}: {dup['title'][:60]}")
             else:
                 remember_story(state, it)
-            if score < HIGH_SCORE:
-                state[slot] = hour
             state["sent"] = {today: sent_today + 1}
+            state["total"] = state.get("total", 0) + 1
             save_state(state)
-            process(it, sent_today + 1, score, urgent, data, followup=bool(waiting and waiting.get("sent")))
+            process(it, sent_today + 1, score, urgent, data, followup=bool(waiting and waiting.get("sent")),
+                    retry=state.setdefault("retry", []))
             sent += 1
         except Exception as e:  # khbar we7ed ma khasshch ywa9ef l bot
             log(f"[process KO] {it['link']}: {e!r}")
-    log(f"{len(items)} items, {len(fresh)} jdad, {sent} tsiftu.")
+    global serper_calls
+    if serper_calls:
+        state["serper"] = state.get("serper", 0) + serper_calls
+        serper_calls = 0
+    log(f"{len(items)} items, {len(fresh)} jdad, {sent} tsiftu."
+        + (f" {deferred} f tsna (Gemini quota)." if deferred else ""))
+    if not NO_AI:
+        try:
+            retry_pending(state)
+        except Exception as e:
+            log(f"[retry KO] {e!r}")
     maybe_report(state, sources)
     save_state(state)
 

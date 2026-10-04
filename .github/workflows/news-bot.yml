@@ -61,6 +61,7 @@ jobs:
           RUN_MINUTES: ${{ inputs.minutes || vars.RUN_MINUTES || '55' }}
           POLL_SECONDS: ${{ vars.POLL_SECONDS || '60' }}
           MIN_SCORE: ${{ vars.MIN_SCORE || '7' }}
+          SERPER_CREDITS: ${{ vars.SERPER_CREDITS || '2500' }}
           HIGH_SCORE: ${{ vars.HIGH_SCORE || '8' }}
 
       - name: Save state
