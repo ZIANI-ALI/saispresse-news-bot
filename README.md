@@ -67,7 +67,7 @@ Kol khbar kaywsel m3ah **Post Instagram** wajed (1080×1350, document = quality 
 
 - **Forme A** (l 3adiya): tswira l fo9 katdoub f navy, titre kbir, catégorie gold. Tswira katkbar/katsghar 3la 7sab toul d titre.
 - **Forme 3ajil**: forme A b pill "عاجل" 7amra w bar 7mer blast gold. Ila Gemini (judge) qal l khabar 3ajil (urgent) w score 9-10 (> `HIGH_SCORE`), kaydkhel blast A/D.
-- **Forme match** (b7al Marca, bla titre): ila l khabar natija d match sala (Gemini kay3ti `match`: l fer9an, l ahdaf, li sjlou, l mosaba9a, smiya b l anglais): tswira 3amra, score kbir, chi3arat d l fer9an (TheSportsDB; ila ma tl9ach, kattketeb smiya kbira), li sjlou ta7t kol fari9. L fari9 l awel 3la limen. Kaydkhel blast A/D (w b l 7mer ila 3ajil).
+- **Forme match** (b7al Marca, bla titre): ghir ila l mawdou3 l asasi d l khabar howa natija d match sala (`match_result` = true; machi tasnif FIFA, tasri7at, ta7lil fih natija). Gemini kay3ti `match`: l fer9an, l ahdaf, li sjlou, l mosaba9a, smiya b l anglais): tswira 3amra, score kbir, chi3arat d l fer9an (TheSportsDB; ila ma tl9ach, kattketeb smiya kbira), li sjlou ta7t kol fari9. L fari9 l awel 3la limen. Kaydkhel blast A/D (w b l 7mer ila 3ajil).
 - **Forme D**: tswira 3amra l post + cadre gold. Ghir ila tswira l asliya HD (bla AI, zoom ≤ 1.15) w machi 3rida bzaf (w/h ≤ 1.35) w titre ≤ 3 stoura.
 - Jouj covers: wa7ed b tswira d l khabar (l asliya ila ≥ 600px — 1200×630 dyal sites kaydkhel — sinon Google chakhsiya), w wa7ed b tswira 7orra (+ "صورة تعبيرية"). Ila ma kaynach wa7da mnhom, kaytsifet ghir l akhor.
 - Titre = instagram_title (bla emoji), catégorie men Gemini.
