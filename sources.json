@@ -219,8 +219,8 @@
       "intl": true
     },
     {
-      "name": "هسبريس رياضة",
-      "url": "https://www.hespress.com/sport/feed",
+      "name": "هسبورت",
+      "url": "https://www.hesport.com/feed",
       "type": "rss",
       "enabled": true
     },
@@ -241,6 +241,27 @@
     {
       "name": "ماركا برشلونة",
       "url": "https://www.marca.com/rss/futbol/barcelona.xml",
+      "type": "rss",
+      "enabled": true,
+      "intl": true
+    },
+    {
+      "name": "آس",
+      "url": "https://as.com/rss/futbol/portada.xml",
+      "type": "rss",
+      "enabled": true,
+      "intl": true
+    },
+    {
+      "name": "موندو ديبورتيفو برشلونة",
+      "url": "https://www.mundodeportivo.com/rss/futbol/fc-barcelona",
+      "type": "rss",
+      "enabled": true,
+      "intl": true
+    },
+    {
+      "name": "موندو ديبورتيفو ريال مدريد",
+      "url": "https://www.mundodeportivo.com/rss/futbol/real-madrid",
       "type": "rss",
       "enabled": true,
       "intl": true

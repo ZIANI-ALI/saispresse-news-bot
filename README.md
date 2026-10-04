@@ -10,7 +10,7 @@ Kayraqeb ~24 source dyal l akhbar f l Maghrib kol 60 tanya. Kol khabar jdid kayw
 
 **Akhbar dawliya:** sources b `"intl": true` (سكاي نيوز عربية، بي بي سي عربي; الجزيرة w فرانس 24 m7bousin: feed bati2). Khabar dawli (men had sources wla men site maghribi) kaytsifet ghir ila score >= `HIGH_SCORE` (8).
 
-**Kora:** sources رياضة (هسبريس رياضة، سكاي نيوز عربية رياضة، ماركا ريال مدريد/برشلونة). Gemini (judge) kay3ref l khabar dyal kora (`football`) w kay3tih score b slom khas: 8 = natija d l mountakhab, ay match d l Botola, l fera9 l maghribiya f Afri9ya, l mountakhabat l kbar, transfer d la3ib maghribi wla star, akhbar kbar d Real/Barça; 7 = akhbar Real/Barça dyal Marca, akhbar l fera9 l maghribiya, la3ibin maghariba f Oropa. Kora kattsifet mn 7+ 7tta ila kant dawliya, w l 7 3ndhom "wa7ed f sa3a" dyalhom (machi nafs dyal l akhbar lokhrin).
+**Kora:** sources رياضة (هسبورت، سكاي نيوز عربية رياضة، ماركا ريال مدريد/برشلونة، آس، موندو ديبورتيفو برشلونة/ريال مدريد). Gemini (judge) kay3ref l khabar dyal kora (`football`) w kay3tih score b slom khas: 8 = natija d l mountakhab, ay match d l Botola, l fera9 l maghribiya f Afri9ya, l mountakhabat l kbar, transfer d la3ib maghribi wla star, akhbar kbar d Real/Barça; 7 = akhbar Real/Barça dyal Marca, akhbar l fera9 l maghribiya, la3ibin maghariba f Oropa. Kora kattsifet mn 7+ 7tta ila kant dawliya, w l 7 3ndhom "wa7ed f sa3a" dyalhom (machi nafs dyal l akhbar lokhrin).
 
 **Khabar bla nass** (Google News / site kayblocki): ma kaytsiftsh; bot kaytsna 7tta source okhra tjib nafs l khabar b l article, w 3ad kaysifeto kamel (cover + النسخة 1/2). Ghir ila score 9-10: kaytsifet daba b cover men l 3onwan bark (bla versions), w mnin ywsel l article men source okhra kaytsifet tani kamel ("📄 النص الكامل وصل").
 
@@ -67,7 +67,7 @@ Kol khbar kaywsel m3ah **Post Instagram** wajed (1080×1350, document = quality 
 
 - **Forme A** (l 3adiya): tswira l fo9 katdoub f navy, titre kbir, catégorie gold. Tswira katkbar/katsghar 3la 7sab toul d titre.
 - **Forme 3ajil**: forme A b pill "عاجل" 7amra w bar 7mer blast gold. Ila Gemini (judge) qal l khabar 3ajil (urgent) w score 9-10 (> `HIGH_SCORE`), kaydkhel blast A/D.
-- **Forme match**: ila l khabar natija d match sala (Gemini kay3ti `match`: l fer9an, l ahdaf, li sjlou, l mosaba9a): tswira l fo9, carte d score (l fari9 l awel 3la limen), titre sghir ta7tha. Kaydkhel blast A/D (w b l 7mer ila 3ajil).
+- **Forme match** (b7al Marca, bla titre): ila l khabar natija d match sala (Gemini kay3ti `match`: l fer9an, l ahdaf, li sjlou, l mosaba9a, smiya b l anglais): tswira 3amra, score kbir, chi3arat d l fer9an (TheSportsDB; ila ma tl9ach, kattketeb smiya kbira), li sjlou ta7t kol fari9. L fari9 l awel 3la limen. Kaydkhel blast A/D (w b l 7mer ila 3ajil).
 - **Forme D**: tswira 3amra l post + cadre gold. Ghir ila tswira l asliya HD (bla AI, zoom ≤ 1.15) w machi 3rida bzaf (w/h ≤ 1.35) w titre ≤ 3 stoura.
 - Jouj covers: wa7ed b tswira d l khabar (l asliya ila ≥ 600px — 1200×630 dyal sites kaydkhel — sinon Google chakhsiya), w wa7ed b tswira 7orra (+ "صورة تعبيرية"). Ila ma kaynach wa7da mnhom, kaytsifet ghir l akhor.
 - Titre = instagram_title (bla emoji), catégorie men Gemini.

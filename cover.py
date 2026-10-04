@@ -194,52 +194,60 @@ def _cut(text: str, fnt, maxw: int) -> str:
 
 def layout_match(img: Image.Image, title: str, match: dict, crop: Crop, stock: bool,
                  urgent: bool = False) -> Image.Image:
-    """Natija d match: l fari9 l awel (home) 3la limen, b7al l 9raya b l 3arbiya."""
-    fnt, lines = _fit_title(title, "Tajawal-Black.ttf", 900, [(2, 64, 54), (3, 56, 46)])
-    lh = int(fnt.size * 1.2)
-    top = 1255 - lh * len(lines)  # titre l te7t, carte fo9o, tswira 3amra l ba9i
-    cy1 = top - 45
-    cy0 = cy1 - 230
-    ph_h = cy0 + 140
-    im = Image.new("RGBA", (W, H), (*NAVY, 255))
-    im.paste(crop(img, (W, ph_h)), (0, 0))
-    im.alpha_composite(_vgrad(W, 380, NAVY, 0, 255, 1.5), (0, ph_h - 380))
-    im.alpha_composite(_vgrad(W, 200, (0, 0, 0), 90, 0), (0, 0))
-    glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    ImageDraw.Draw(glow).ellipse((-200, cy0 - 40, 1300, H + 200), fill=(*NAVY2, 150))
-    im.alpha_composite(glow.filter(ImageFilter.GaussianBlur(120)))
+    """Natija d match b7al Marca: tswira 3amra, score kbir, chi3arat d l fer9an, li sjlou. Bla titre.
+    L fari9 l awel (home) 3la limen, b7al l 9raya b l 3arbiya."""
+    im = crop(img, (W, H)).convert("RGBA")
+    im.alpha_composite(_vgrad(W, 820, NAVY, 0, 252, 0.9), (0, H - 820))
+    im.alpha_composite(_vgrad(W, 220, (0, 0, 0), 110, 0), (0, 0))
     dr = ImageDraw.Draw(im)
     accent = RED if urgent else GOLD
 
     comp = clean_title(match.get("competition", ""))[:40]
     if urgent:
-        _pill(dr, 1010, cy0 - 92, "عاجل", _font("Tajawal-Black.ttf", 42), padx=28, pady=6, fill=RED, color=WHITE)
+        _pill(dr, 540 + _width("عاجل", _font("Tajawal-Black.ttf", 40)) / 2 + 26, 790, "عاجل",
+              _font("Tajawal-Black.ttf", 40), padx=26, pady=6, fill=RED, color=WHITE)
     elif comp:
-        _pill(dr, 1010, cy0 - 80, comp, _font("Tajawal-Bold.ttf", 32))
+        cf = _font("Tajawal-Bold.ttf", 32)
+        _pill(dr, 540 + _width(comp, cf) / 2 + 22, 800, comp, cf)
 
-    card = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    ImageDraw.Draw(card).rounded_rectangle((60, cy0, 1020, cy1), radius=28, fill=(*NAVY, 235),
-                                           outline=accent, width=3)
-    im.alpha_composite(card)
+    sy = 1000  # wast d l score
+    score_f = _font("Tajawal-Black.ttf", 230)
+    shadow = Image.new("RGBA", (W, H), (0, 0, 0, 0))  # dell bach l ar9am ybano fo9 ay tswira
+    sd = ImageDraw.Draw(shadow)
+    for x, goals in ((655, match["home_score"]), (425, match["away_score"])):
+        sd.text((x + 4, sy + 6), str(goals), font=score_f, fill=(0, 0, 0, 170), anchor="mm")
+    im.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(10)))
     dr = ImageDraw.Draw(im)
-    score_f = _font("Tajawal-Black.ttf", 120)
-    for cx, sx, team, goals, scorers in (
-            (830, 625, match["home"], match["home_score"], match.get("home_scorers", "")),
-            (250, 455, match["away"], match["away_score"], match.get("away_scorers", ""))):
+    dr.text((655, sy), str(match["home_score"]), font=score_f, fill=WHITE, anchor="mm")
+    dr.text((425, sy), str(match["away_score"]), font=score_f, fill=WHITE, anchor="mm")
+    dr.rectangle((537, sy - 55, 543, sy + 55), fill=accent)
+    for cx, team, badge in ((900, match["home"], match.get("home_badge")),
+                            (180, match["away"], match.get("away_badge"))):
         team = clean_title(team)
-        _text(dr, (cx, cy0 + 85), team, _fit_one(team, "Tajawal-ExtraBold.ttf", 290, 58, 32), WHITE, "mm")
-        scorers = clean_title(scorers)
-        if scorers:  # str wla jouj
-            sf = _font("Tajawal-Bold.ttf", 25)
-            rows = _wrap(scorers, sf, 300)
-            rows = rows[:1] if len(rows) == 1 else [rows[0], _cut(" ".join(rows[1:]), sf, 300)]
-            for i, row in enumerate(rows):
-                _text(dr, (cx, cy0 + (168 if len(rows) == 1 else 155) + i * 32), row, sf, GOLD_L, "mm")
-        dr.text((sx, cy0 + 100), str(goals), font=score_f, fill=GOLD_L, anchor="mm")
-    dr.text((540, cy0 + 95), "-", font=_font("Tajawal-Black.ttf", 100), fill=GOLD_L, anchor="mm")
+        if badge is not None:
+            b = badge.copy()
+            b.thumbnail((190, 190), Image.LANCZOS)
+            im.alpha_composite(b, (cx - b.width // 2, sy - 20 - b.height // 2))
+            dr = ImageDraw.Draw(im)
+            _text(dr, (cx, sy + 110), team, _fit_one(team, "Tajawal-Bold.ttf", 280, 34, 24), GOLD_L, "mm")
+        else:  # bla chi3ar: smiya kbira
+            _text(dr, (cx, sy), team, _fit_one(team, "Tajawal-ExtraBold.ttf", 270, 64, 30), WHITE, "mm")
 
-    dr.rectangle((1022, top + 12, 1032, top + lh * len(lines) - 18), fill=accent)
-    _lines(dr, lines, fnt, 1000, top, lh)
+    # li sjlou: home 3la limen, away 3la lissar
+    sf = _font("Tajawal-Bold.ttf", 30)
+    for x, scorers, anchor in ((1010, match.get("home_scorers", ""), "ra"),
+                               (70, match.get("away_scorers", ""), "la")):
+        names = [clean_title(n) for n in re.split(r"[،,؛;]", scorers or "") if clean_title(n)]
+        rows = []  # kol hadaf kaml f str wa7ed (ma ntferq smiya 3la d9i9a)
+        for n in names:
+            if rows and _width(f"{rows[-1]} • {n}", sf) <= 440:
+                rows[-1] = f"{rows[-1]} • {n}"
+            else:
+                rows.append(n)
+        rows = rows[:3]
+        for i, row in enumerate(rows):
+            _text(dr, (x, sy + 165 + i * 40), row, sf, GOLD_L, anchor)
+
     dr.rectangle((0, H - (12 if urgent else 8), W, H), fill=accent)
     _text(dr, (70, H - 44), SITE, _font("Tajawal-Bold.ttf", 28), GOLD_L, "lm")
     lg = _logo(70)
