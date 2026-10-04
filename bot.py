@@ -131,7 +131,10 @@ def fetch(url: str, timeout: int = 20) -> requests.Response:
     except (requests.ConnectionError, requests.Timeout):
         if not RELAY_URL:
             raise
-    return http.get(RELAY_URL, params={"url": url}, headers={"X-Relay-Key": RELAY_KEY}, timeout=timeout + 10)
+    r = http.get(RELAY_URL, params={"url": url}, headers={"X-Relay-Key": RELAY_KEY}, timeout=timeout + 10)
+    if not r.ok:  # "forbidden" = RELAY_KEY machi bhal bhal; sinon site blocka 7tta Cloudflare
+        log(f"[relay KO] HTTP {r.status_code} {urlparse(url).netloc}: {r.text[:60]!r}")
+    return r
 
 
 def fetch_feed(src: dict) -> list[dict]:
