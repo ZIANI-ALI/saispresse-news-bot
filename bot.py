@@ -373,6 +373,52 @@ def zoom_factor(img: Image.Image, size: tuple[int, int]) -> float:
     return size[0] / (r - l)
 
 
+UPSCALE_MODEL = Path(__file__).with_name("models") / "realesr-general-x4v3.onnx"
+_sr_session = None
+
+
+def ai_upscale(img: Image.Image, tile: int = 256, pad: int = 10) -> Image.Image | None:
+    """Real-ESRGAN (general-x4v3, BSD-3) x4 3la CPU b tiles. None ila ma kaynch onnxruntime."""
+    global _sr_session
+    try:
+        import numpy as np
+        import onnxruntime as ort
+        if _sr_session is None:
+            _sr_session = ort.InferenceSession(str(UPSCALE_MODEL), providers=["CPUExecutionProvider"])
+        a = np.asarray(img, dtype=np.float32).transpose(2, 0, 1)[None] / 255.0
+        _, _, h, w = a.shape
+        out = np.zeros((1, 3, h * 4, w * 4), np.float32)
+        for y in range(0, h, tile):
+            for x in range(0, w, tile):
+                y0, x0 = max(y - pad, 0), max(x - pad, 0)
+                y1, x1 = min(y + tile + pad, h), min(x + tile + pad, w)
+                r = _sr_session.run(None, {"x": a[:, :, y0:y1, x0:x1]})[0]
+                th, tw = min(tile, h - y), min(tile, w - x)
+                out[:, :, y * 4:(y + th) * 4, x * 4:(x + tw) * 4] = \
+                    r[:, :, (y - y0) * 4:(y - y0 + th) * 4, (x - x0) * 4:(x - x0 + tw) * 4]
+        return Image.fromarray((np.clip(out[0].transpose(1, 2, 0), 0, 1) * 255 + 0.5).astype(np.uint8))
+    except Exception as e:  # model/onnxruntime ma kaynch wla RAM: nkemmlo bla AI
+        log(f"[upscale KO] {e.__class__.__name__}: {e}")
+        return None
+
+
+def enhance(img: Image.Image) -> tuple[Image.Image, bool]:
+    """Ila tswira sghira 3la l formats, AI kaykebbrha (bla ma ybanou tsawer 'plastique')."""
+    if zoom_factor(img, INSTA_SIZE) <= 1.0 or img.width * img.height > 3_000_000:
+        return img, False
+    t = time.time()
+    big = ai_upscale(img)
+    if big is None:
+        return img, False
+    # chwiya d Lanczos m3a AI bach ybqaw l wjouh tabi3iyin
+    big = Image.blend(img.resize(big.size, Image.LANCZOS), big, 0.8)
+    scale = min(1.0, 2600 / max(big.size))
+    if scale < 1.0:
+        big = big.resize((round(big.width * scale), round(big.height * scale)), Image.LANCZOS)
+    log(f"[upscale] {img.width}x{img.height} -> {big.width}x{big.height} ({time.time() - t:.1f}s)")
+    return big, True
+
+
 def insta_image(img: Image.Image) -> bytes:
     return render(img, INSTA_SIZE)
 
@@ -691,16 +737,21 @@ def process(item: dict, number: int, score: int) -> None:
               f"<b>{esc(item['title'])}</b>\n<a href=\"{html.escape(item['link'])}\">فتح الخبر</a>")
     text, image_urls = ("", []) if NO_AI else article_data(item)
     img = best_image(image_urls) if image_urls else None
+    small, upscaled = (img.size if img else None), False
+    if img:
+        img, upscaled = enhance(img)
     insta = insta_image(img) if img else None
     alert_id = tg_file("sendPhoto", "photo", insta, header) if insta else None
     if alert_id is None:
         alert_id = tg_send(header, preview=True)
-    elif zoom_factor(img, INSTA_SIZE) > 1.4:
+    elif not upscaled and zoom_factor(img, INSTA_SIZE) > 1.4:
         tg_send(f"⚠️ Tswira l asliya sghira ({img.width}×{img.height}): f l portrait ghatkoun zoom "
                 f"×{zoom_factor(img, INSTA_SIZE):.1f}, quality ghatn9es. A7san tbdelha.", reply_to=alert_id)
     if insta:
         label = ("⚠️ Tswira d l source: référence bark (3endha copyright)" if FREE_IMAGES
                  else "🖼 HD: portrait 4:5 · carré 1:1 · site 16:9 (tswira d l source: 3endha copyright)")
+        if upscaled:
+            label += f"\n🪄 Mkebbra b AI (l asliya {small[0]}×{small[1]})"
         tg_album(all_formats(img), label, reply_to=alert_id)
 
     if NO_AI:
@@ -722,6 +773,7 @@ def process(item: dict, number: int, score: int) -> None:
     free = free_image(out.get("image_query", ""))
     if free:
         img_free, photo_credit = free
+        img_free, _ = enhance(img_free)
         tg_album(all_formats(img_free),
                 f"✅ <b>Tswira 7orra, msmou7 tnchrha</b> · portrait 4:5 · carré 1:1 · site 16:9\n"
                 f"{esc(photo_credit)} · b7ath: {esc(out['image_query'])}", reply_to=alert_id)
