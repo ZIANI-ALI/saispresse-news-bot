@@ -50,3 +50,5 @@ DRY_RUN=1 GEMINI_API_KEY=... python bot.py
 ```
 
 **AI upscale:** ila tswira sghira (zoom > ×1 f portrait), bot kaykebbrha b Real-ESRGAN (`models/realesr-general-x4v3.onnx`, BSD-3) 3la CPU (~4-7 s). Tswira kat9ra bla mochkil, walakin copyright dyal tswira l asliya kayb9a.
+
+**Tswira dyal chakhsiya:** ila l khabar 3la chakhsiya 3amma (wazir, la3ib...), bot kayqelleb 3la tswira dyalha f Wikipedia/Wikimedia Commons (licence 7orra, ghir Commons) w kaysifetha m3a l credit li khass yban f l poste.
