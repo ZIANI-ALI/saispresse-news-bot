@@ -806,12 +806,14 @@ def esc(s: str) -> str:
     return html.escape(s, quote=False)
 
 
-def process(item: dict, number: int, score: int, urgent: bool = False) -> None:
+def process(item: dict, number: int, score: int, urgent: bool = False,
+            data: tuple[str, list[str]] | None = None, followup: bool = False) -> None:
     when = datetime.fromtimestamp(item["ts"], TZ).strftime("%H:%M")
     header = (f"━━━━━━━━━━━━━━━━\n"
-              f"{'🚨 <b>عاجل</b> · ' if urgent else ''}🔴 <b>خبر {number}</b> · ⭐ {score}/10 · {esc(item['source'])} · {when}\n\n"
+              + ("📄 <b>النص الكامل وصل</b> (l khabar tsifet 9bel ghir b l 3onwan)\n" if followup else "")
+              + f"{'🚨 <b>عاجل</b> · ' if urgent else ''}🔴 <b>خبر {number}</b> · ⭐ {score}/10 · {esc(item['source'])} · {when}\n\n"
               f"<b>{esc(item['title'])}</b>\n<a href=\"{html.escape(item['link'])}\">فتح الخبر</a>")
-    text, image_urls = ("", []) if NO_AI else article_data(item)
+    text, image_urls = data or (("", []) if NO_AI else article_data(item))
     img = best_image(image_urls) if image_urls else None
     small, upscaled = (img.size if img else None), False
     if img:
@@ -926,9 +928,13 @@ def send_post(out: dict, choices: list[tuple], reply_to: int | None, note: str =
 
 # ---------------------------------------------------------------- main
 
-def remember_story(state: dict, item: dict) -> None:
-    state["stories"].append({"ts": item["ts"], "title": item["title"], "source": item["source"],
-                             "tokens": sorted(title_tokens(item["title"]))})
+def remember_story(state: dict, item: dict, pending: dict | None = None) -> None:
+    """pending: khabar wsel bla nass, kantsnaw source okhra tjibo b l article ({score, intl, urgent})."""
+    st = {"ts": item["ts"], "title": item["title"], "source": item["source"],
+          "tokens": sorted(title_tokens(item["title"]))}
+    if pending:
+        st["pending"] = pending
+    state["stories"].append(st)
 
 
 def count(state: dict, source: str, kind: str) -> None:
@@ -991,28 +997,53 @@ def poll_once(state: dict, sources: list[dict]) -> None:
     for it in fresh:
         try:
             dup, score, intl, urgent = judge(it, state["stories"])
-            urgent = urgent and score > HIGH_SCORE  # 3ajil ghir 9-10
-            if dup:
+            waiting = dup.get("pending") if dup else None
+            if dup and not waiting:
                 count(state, it["source"], "dup")
                 log(f"[mkerrer] {it['source']}: {it['title'][:60]} == {dup['source']}: {dup['title'][:60]}")
                 continue
-            remember_story(state, it)
-            count(state, it["source"], "first")
+            if waiting:  # nafs l khabar li kan wsel ghir b l 3onwan
+                count(state, it["source"], "dup")
+                score = max(score, waiting["score"])
+                intl, urgent = waiting["intl"], waiting["urgent"] or urgent
+            else:
+                count(state, it["source"], "first")
+            urgent = urgent and score > HIGH_SCORE  # 3ajil ghir 9-10
             sent_today = state.setdefault("sent", {}).get(today, 0)
             hour = datetime.now(TZ).strftime("%Y-%m-%d %H")
             if score < (HIGH_SCORE if it.get("intl") or intl else MIN_SCORE):  # dawli: ghir l kbar
                 log(f"[ma mohimch {score}/10] {it['source']}: {it['title'][:70]}")
+                remember_story(state, it)
                 save_state(state)
                 continue
-            if score < HIGH_SCORE:
-                if state.get("mid_hour") == hour:  # dejà tsifet wa7ed mutawasit had sa3a
-                    log(f"[wa7ed f sa3a {score}/10] {it['source']}: {it['title'][:70]}")
-                    save_state(state)
+            if score < HIGH_SCORE and state.get("mid_hour") == hour:  # dejà tsifet wa7ed mutawasit had sa3a
+                log(f"[wa7ed f sa3a {score}/10] {it['source']}: {it['title'][:70]}")
+                if not waiting:
+                    remember_story(state, it)
+                save_state(state)
+                continue
+            data = ("", []) if NO_AI else article_data(it)
+            if not NO_AI and len(data[0]) < MIN_TEXT_FOR_AI:  # ghir l 3onwan
+                if waiting:
+                    log(f"[mazal bla nass {score}/10] {it['source']}: {it['title'][:70]}")
                     continue
+                remember_story(state, it, {"score": score, "intl": intl, "urgent": urgent,
+                                           "sent": score > HIGH_SCORE})
+                save_state(state)
+                if score <= HIGH_SCORE:  # kantsnaw source okhra tjibo b l article
+                    log(f"[bla nass, kantsna {score}/10] {it['source']}: {it['title'][:70]}")
+                    continue
+                log(f"[bla nass, 9-10: cover daba] {it['source']}: {it['title'][:70]}")
+            elif waiting:
+                del dup["pending"]
+                log(f"[nass wsel] {it['source']}: {it['title'][:60]} == {dup['source']}: {dup['title'][:60]}")
+            else:
+                remember_story(state, it)
+            if score < HIGH_SCORE:
                 state["mid_hour"] = hour
             state["sent"] = {today: sent_today + 1}
             save_state(state)
-            process(it, sent_today + 1, score, urgent)
+            process(it, sent_today + 1, score, urgent, data, followup=bool(waiting and waiting.get("sent")))
             sent += 1
         except Exception as e:  # khbar we7ed ma khasshch ywa9ef l bot
             log(f"[process KO] {it['link']}: {e!r}")

@@ -10,7 +10,7 @@ Kayraqeb ~24 source dyal l akhbar f l Maghrib kol 60 tanya. Kol khabar jdid kayw
 
 **Akhbar dawliya:** sources b `"intl": true` (سكاي نيوز عربية، بي بي سي عربي; الجزيرة w فرانس 24 m7bousin: feed bati2). Khabar dawli (men had sources wla men site maghribi) kaytsifet ghir ila score >= `HIGH_SCORE` (8).
 
-**Khabar bla nass** (Google News / site kayblocki): ma kaynach النسخة 1/2, walakin Gemini kaysawb men l 3onwan bark instagram_title + catégorie, w l cover kaytsawb (tswira Google wla 7orra) m3a tanbih.
+**Khabar bla nass** (Google News / site kayblocki): ma kaytsiftsh; bot kaytsna 7tta source okhra tjib nafs l khabar b l article, w 3ad kaysifeto kamel (cover + النسخة 1/2). Ghir ila score 9-10: kaytsifet daba b cover men l 3onwan bark (bla versions), w mnin ywsel l article men source okhra kaytsifet tani kamel ("📄 النص الكامل وصل").
 
 **Kol khabar:** tswira + 3onwan asli (+ note) → النسخة 1 → Instagram (3onwan viral + 2-3 fiqrat). Kol khabar kaybda b khatt fasel w ra9mo f nhar.
 
