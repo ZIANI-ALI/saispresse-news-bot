@@ -70,6 +70,20 @@ def _fit(text: str, name: str, maxw: int, max_lines: int, hi: int, lo: int):
     return fnt, lines
 
 
+def _fit_title(text: str, name: str, maxw: int, steps):
+    """steps = [(max_lines, hi, lo), ...]: 2 stoura ila kaydkhel b taille mzyana, sinon 3, sinon 4."""
+    for max_lines, hi, lo in steps:
+        fnt, lines = _fit(text, name, maxw, max_lines, hi, lo)
+        if len(lines) <= max_lines:
+            return fnt, lines
+    return fnt, lines
+
+
+# tailles mn 9bel kanet 112/104: titre kan kaykbar 7tta y3ammer 3 stoura
+STEPS_A = [(2, 84, 70), (3, 76, 58), (4, 64, 50)]
+STEPS_D = [(2, 80, 66), (3, 72, 56)]
+
+
 def _vgrad(w: int, h: int, color, a0: int, a1: int, power: float = 1.0) -> Image.Image:
     mask = Image.new("L", (1, h))
     for y in range(h):
@@ -102,9 +116,7 @@ def _lines(dr, lines, fnt, right: int, top: int, lh: int) -> None:
 
 
 def layout_a(img: Image.Image, title: str, category: str, crop: Crop, stock: bool) -> Image.Image:
-    fnt, lines = _fit(title, "Tajawal-Black.ttf", 900, 3, 112, 58)
-    if len(lines) > 3:
-        fnt, lines = _fit(title, "Tajawal-Black.ttf", 900, 4, 70, 50)
+    fnt, lines = _fit_title(title, "Tajawal-Black.ttf", 900, STEPS_A)
     lh = int(fnt.size * 1.18)
     block = lh * len(lines)
     text_top = 1255 - block
@@ -136,7 +148,7 @@ def layout_d(img: Image.Image, title: str, category: str, crop: Crop, stock: boo
     im = crop(img, (W, H)).convert("RGBA")
     im.alpha_composite(_vgrad(W, 700, NAVY, 0, 235, 1.2), (0, H - 700))
     im.alpha_composite(_vgrad(W, 220, (0, 0, 0), 100, 0), (0, 0))
-    fnt, lines = _fit(title, "Tajawal-ExtraBold.ttf", 860, 3, 104, 56)
+    fnt, lines = _fit_title(title, "Tajawal-ExtraBold.ttf", 860, STEPS_D)
     lh = int(fnt.size * 1.2)
     by1 = 1272
     by0 = by1 - lh * len(lines) - 105  # 105 = padding + str d site dakhel l boîte
@@ -175,7 +187,7 @@ def make_post(img: Image.Image, title: str, category: str, crop: Crop,
               native: tuple[int, int], upscaled: bool = False, stock: bool = False) -> tuple[bytes, str]:
     title = clean_title(title)
     category = clean_title(category)[:20]
-    _, lines = _fit(title, "Tajawal-ExtraBold.ttf", 860, 3, 92, 56)
+    _, lines = _fit_title(title, "Tajawal-ExtraBold.ttf", 860, STEPS_D)
     kind = choose_layout(native, upscaled, len(lines))
     im = (layout_d if kind == "D" else layout_a)(img, title, category, crop, stock)
     out = BytesIO()
