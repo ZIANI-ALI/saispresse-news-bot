@@ -8,7 +8,7 @@ Kayraqeb ~24 source dyal l akhbar f l Maghrib kol 60 tanya. Kol khabar jdid kayw
 
 **Ghir l mohim:** Gemini kay3ti l kol khabar note d ahamiya mn 10. Kolchi li 3ndo `HIGH_SCORE` (8) wla ktar kaytsifet bla 7add. Li 3ndo `MIN_SCORE` (7): khabar wa7ed f kol sa3a, l khrin kaytse77aw. Tqder tbdel had l ar9am men Variables.
 
-**Akhbar dawliya:** sources b `"intl": true` (الجزيرة، سكاي نيوز عربية، فرانس 24، بي بي سي عربي). Khabar dawli (men had sources wla men site maghribi) kaytsifet ghir ila score >= `HIGH_SCORE` (8).
+**Akhbar dawliya:** sources b `"intl": true` (سكاي نيوز عربية، بي بي سي عربي; الجزيرة w فرانس 24 m7bousin: feed bati2). Khabar dawli (men had sources wla men site maghribi) kaytsifet ghir ila score >= `HIGH_SCORE` (8).
 
 **Khabar bla nass** (Google News / site kayblocki): ma kaynach النسخة 1/2, walakin Gemini kaysawb men l 3onwan bark instagram_title + catégorie, w l cover kaytsawb (tswira Google wla 7orra) m3a tanbih.
 
