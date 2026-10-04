@@ -909,21 +909,22 @@ def covers(item: dict, out: dict, img, small, upscaled: bool, alert_id: int | No
 
 
 def send_post(out: dict, choices: list[tuple], reply_to: int | None, note: str = "", urgent: bool = False) -> None:
-    """Cover Instagram wajed: l awla tswira l asliya ila kant >= 600px (1200x630 dyal sites), sinon Google, sinon 7orra."""
-    if not choices:
-        return
-    pick = next((c for c in choices if min(c[1]) >= 600), choices[0])
-    img, native, upscaled, stock, origin = pick
-    try:
-        data, kind = cover.make_post(img, out["instagram_title"], out.get("category", ""), crop_to,
-                                     native, upscaled, stock, urgent)
-    except Exception as e:  # cover ma khassoush ywe9ef l bot
-        log(f"[cover KO] {e.__class__.__name__}: {e}")
-        return
-    log(f"[cover] forme {kind} · tswira {origin} {native[0]}x{native[1]}")
-    tg_file("sendDocument", "document", data,
-            f"📸 <b>Post Instagram</b> (forme {kind}) · tswira: {origin}"
-            + ("\n⚠️ Tswira d l source/Google 3endha copyright" if not stock else "") + note, reply_to=reply_to)
+    """Jouj covers Instagram: wa7ed b tswira d l khabar (source >= 600px, sinon Google) w wa7ed b tswira 7orra."""
+    real = [c for c in choices if not c[3]]
+    picks = [next((c for c in real if min(c[1]) >= 600), real[0])] if real else []
+    picks += [c for c in choices if c[3]][:1]
+    for img, native, upscaled, stock, origin in picks:
+        try:
+            data, kind = cover.make_post(img, out["instagram_title"], out.get("category", ""), crop_to,
+                                         native, upscaled, stock, urgent)
+        except Exception as e:  # cover ma khassoush ywe9ef l bot
+            log(f"[cover KO] {e.__class__.__name__}: {e}")
+            continue
+        log(f"[cover] forme {kind} · tswira {origin} {native[0]}x{native[1]}")
+        tg_file("sendDocument", "document", data,
+                f"📸 <b>Post Instagram</b> (forme {kind}) · tswira: {origin}"
+                + ("\n✅ Tswira 7orra, msmou7 tnchrha" if stock else "\n⚠️ Tswira d l source/Google 3endha copyright")
+                + note, reply_to=reply_to)
 
 
 # ---------------------------------------------------------------- main
