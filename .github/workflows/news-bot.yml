@@ -36,6 +36,9 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      # fribidi: Pillow kay7tajha bach ykteb l 3arbiya mrbouta f cover Instagram
+      - run: dpkg -s libfribidi0 >/dev/null 2>&1 || (sudo apt-get update -q && sudo apt-get install -y -q libfribidi0)
+
       - name: Restore state (akhbar li tsiftu)
         uses: actions/cache/restore@v4
         with:

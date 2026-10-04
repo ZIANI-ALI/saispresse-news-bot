@@ -54,3 +54,13 @@ DRY_RUN=1 GEMINI_API_KEY=... python bot.py
 **Tswira dyal chakhsiya (Google):** ila l khabar 3la chakhs wa7ed w tswira d l source sghira, bot kayqelleb f Google Images (via https://serper.dev, secret `SERPER_API_KEY`) 3la tswira HD (≥1000px) w kaysifetha ka référence (3endha copyright).
 
 **Relay (MAP...):** MAP, Barlamane, Kech24, Goud kaybloquiw GitHub. Dir Cloudflare Worker fabor b `relay/worker.js`, w zid secrets `RELAY_URL` (lien d worker) w `RELAY_KEY` (nafs l mot de passe f worker w GitHub). Bla relay, had sites kaydouzo b Google News (3onwan bark, bla nass bla tswira).
+
+## Cover Instagram (automatique)
+
+Kol khbar kaywsel m3ah **Post Instagram** wajed (1080×1350, document = quality kamla), msawb b `cover.py`:
+
+- **Forme A** (l 3adiya): tswira l fo9 katdoub f navy, titre kbir, catégorie gold. Tswira katkbar/katsghar 3la 7sab toul d titre.
+- **Forme D**: tswira 3amra l post + cadre gold. Ghir ila tswira l asliya HD (bla AI, zoom ≤ 1.15) w machi 3rida bzaf (w/h ≤ 1.35) w titre ≤ 3 stoura.
+- Tswira: l asliya ila ≥ 700px, sinon Google (chakhsiya), sinon tswira 7orra (+ "صورة تعبيرية").
+- Titre = instagram_title (bla emoji), catégorie men Gemini.
+- Alwan: navy `#0B1F4D` / `#16357A`, gold `#C9A227` / `#E6C65C`. Font Tajawal (OFL), logo `assets/logo.png`.
