@@ -3,6 +3,7 @@
 Jouj d les formes:
   A: tswira l fo9 katdoub f navy, titre kbir ta7tha (l forme l 3adiya, katkhdem m3a ay tswira).
   D: tswira 3amra l post kamel, cadre gold, titre f boîte navy (ghir ila tswira twila w HD).
+  match: natija d match: tswira l fo9, carte d score (l fer9an, l ahdaf, li sjlou), titre sghir.
 """
 import re
 from io import BytesIO
@@ -176,6 +177,91 @@ def layout_d(img: Image.Image, title: str, category: str, crop: Crop, stock: boo
     return im
 
 
+def _fit_one(text: str, name: str, maxw: int, hi: int, lo: int) -> ImageFont.FreeTypeFont:
+    """Akbar taille fiha l ktaba kadkhel f str wa7ed."""
+    for size in range(hi, lo - 1, -2):
+        fnt = _font(name, size)
+        if _width(text, fnt) <= maxw:
+            return fnt
+    return fnt
+
+
+def _cut(text: str, fnt, maxw: int) -> str:
+    while text and _width(text, fnt) > maxw:
+        text = text[:-2].rstrip(" ،,") + "…"
+    return text
+
+
+def layout_match(img: Image.Image, title: str, match: dict, crop: Crop, stock: bool,
+                 urgent: bool = False) -> Image.Image:
+    """Natija d match: l fari9 l awel (home) 3la limen, b7al l 9raya b l 3arbiya."""
+    fnt, lines = _fit_title(title, "Tajawal-Black.ttf", 900, [(2, 64, 54), (3, 56, 46)])
+    lh = int(fnt.size * 1.2)
+    top = 1255 - lh * len(lines)  # titre l te7t, carte fo9o, tswira 3amra l ba9i
+    cy1 = top - 45
+    cy0 = cy1 - 230
+    ph_h = cy0 + 140
+    im = Image.new("RGBA", (W, H), (*NAVY, 255))
+    im.paste(crop(img, (W, ph_h)), (0, 0))
+    im.alpha_composite(_vgrad(W, 380, NAVY, 0, 255, 1.5), (0, ph_h - 380))
+    im.alpha_composite(_vgrad(W, 200, (0, 0, 0), 90, 0), (0, 0))
+    glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    ImageDraw.Draw(glow).ellipse((-200, cy0 - 40, 1300, H + 200), fill=(*NAVY2, 150))
+    im.alpha_composite(glow.filter(ImageFilter.GaussianBlur(120)))
+    dr = ImageDraw.Draw(im)
+    accent = RED if urgent else GOLD
+
+    comp = clean_title(match.get("competition", ""))[:40]
+    if urgent:
+        _pill(dr, 1010, cy0 - 92, "عاجل", _font("Tajawal-Black.ttf", 42), padx=28, pady=6, fill=RED, color=WHITE)
+    elif comp:
+        _pill(dr, 1010, cy0 - 80, comp, _font("Tajawal-Bold.ttf", 32))
+
+    card = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    ImageDraw.Draw(card).rounded_rectangle((60, cy0, 1020, cy1), radius=28, fill=(*NAVY, 235),
+                                           outline=accent, width=3)
+    im.alpha_composite(card)
+    dr = ImageDraw.Draw(im)
+    score_f = _font("Tajawal-Black.ttf", 120)
+    for cx, sx, team, goals, scorers in (
+            (830, 625, match["home"], match["home_score"], match.get("home_scorers", "")),
+            (250, 455, match["away"], match["away_score"], match.get("away_scorers", ""))):
+        team = clean_title(team)
+        _text(dr, (cx, cy0 + 85), team, _fit_one(team, "Tajawal-ExtraBold.ttf", 290, 58, 32), WHITE, "mm")
+        scorers = clean_title(scorers)
+        if scorers:  # str wla jouj
+            sf = _font("Tajawal-Bold.ttf", 25)
+            rows = _wrap(scorers, sf, 300)
+            rows = rows[:1] if len(rows) == 1 else [rows[0], _cut(" ".join(rows[1:]), sf, 300)]
+            for i, row in enumerate(rows):
+                _text(dr, (cx, cy0 + (168 if len(rows) == 1 else 155) + i * 32), row, sf, GOLD_L, "mm")
+        dr.text((sx, cy0 + 100), str(goals), font=score_f, fill=GOLD_L, anchor="mm")
+    dr.text((540, cy0 + 95), "-", font=_font("Tajawal-Black.ttf", 100), fill=GOLD_L, anchor="mm")
+
+    dr.rectangle((1022, top + 12, 1032, top + lh * len(lines) - 18), fill=accent)
+    _lines(dr, lines, fnt, 1000, top, lh)
+    dr.rectangle((0, H - (12 if urgent else 8), W, H), fill=accent)
+    _text(dr, (70, H - 44), SITE, _font("Tajawal-Bold.ttf", 28), GOLD_L, "lm")
+    lg = _logo(70)
+    im.alpha_composite(lg, (W - lg.width - 50, 48))
+    if stock:
+        _stock_label(dr, (50, 83))
+    return im
+
+
+def valid_match(m) -> dict | None:
+    """Gemini kay3ti 'match' ghir ila kan l khabar natija d match sala; nt2akdo mn l 9yam."""
+    if not isinstance(m, dict) or not str(m.get("home", "")).strip() or not str(m.get("away", "")).strip():
+        return None
+    try:
+        hs, as_ = int(m["home_score"]), int(m["away_score"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not (0 <= hs <= 30 and 0 <= as_ <= 30):
+        return None
+    return {**m, "home_score": hs, "away_score": as_}
+
+
 def choose_layout(native: tuple[int, int], upscaled: bool, n_lines: int) -> str:
     """D ghir ila tswira l asliya HD w machi 3rida bzaf (bach ma ytqt3ouch nas/tafasil f crop).
 
@@ -192,8 +278,11 @@ def choose_layout(native: tuple[int, int], upscaled: bool, n_lines: int) -> str:
 
 def make_post(img: Image.Image, title: str, category: str, crop: Crop,
               native: tuple[int, int], upscaled: bool = False, stock: bool = False,
-              urgent: bool = False) -> tuple[bytes, str]:
+              urgent: bool = False, match: dict | None = None) -> tuple[bytes, str]:
     title = clean_title(title)
+    match = valid_match(match)
+    if match:  # natija d match: cover dyal score
+        return _jpeg(layout_match(img, title, match, crop, stock, urgent)), "match"
     category = clean_title(category)[:20]
     _, lines = _fit_title(title, "Tajawal-ExtraBold.ttf", 860, STEPS_D)
     if urgent:  # 3ajil: dima A b l a7mar

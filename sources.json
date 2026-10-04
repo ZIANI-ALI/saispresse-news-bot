@@ -1,5 +1,5 @@
 {
-  "_note": "10 sources asasiyin (sri3in + kaygheTTiw kolchi). Lbaqi m7bous (enabled=false): rja3 l rapport dyal 22:00 bach tqarer. type=gnews: Google News (l sites li kaybloquiw RSS). credit: ila kayn, kayt-zad f l akhir dyal النسخة 1 w Instagram. intl=true: source dawliya, kaytsifet ghir l khabar li 3ndo score >= HIGH_SCORE.",
+  "_note": "10 sources asasiyin (sri3in + kaygheTTiw kolchi). Lbaqi m7bous (enabled=false): rja3 l rapport dyal 22:00 bach tqarer. type=gnews: Google News (l sites li kaybloquiw RSS). credit: ila kayn, kayt-zad f l akhir dyal النسخة 1 w Instagram. intl=true: source dawliya, kaytsifet ghir l khabar li 3ndo score >= HIGH_SCORE. Kora (football=true f judge): kattsifet mn 7+ 7tta ila kant dawliya, w 3ndha 'wa7ed f sa3a' dyalha.",
   "sources": [
     {
       "name": "وكالة المغرب العربي للأنباء (MAP عربي)",
@@ -214,6 +214,33 @@
     {
       "name": "بي بي سي عربي",
       "url": "https://feeds.bbci.co.uk/arabic/rss.xml",
+      "type": "rss",
+      "enabled": true,
+      "intl": true
+    },
+    {
+      "name": "هسبريس رياضة",
+      "url": "https://www.hespress.com/sport/feed",
+      "type": "rss",
+      "enabled": true
+    },
+    {
+      "name": "سكاي نيوز عربية رياضة",
+      "url": "https://www.skynewsarabia.com/rss/sport.xml",
+      "type": "rss",
+      "enabled": true,
+      "intl": true
+    },
+    {
+      "name": "ماركا ريال مدريد",
+      "url": "https://www.marca.com/rss/futbol/real-madrid.xml",
+      "type": "rss",
+      "enabled": true,
+      "intl": true
+    },
+    {
+      "name": "ماركا برشلونة",
+      "url": "https://www.marca.com/rss/futbol/barcelona.xml",
       "type": "rss",
       "enabled": true,
       "intl": true
