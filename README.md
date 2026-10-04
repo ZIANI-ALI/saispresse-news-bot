@@ -64,6 +64,7 @@ DRY_RUN=1 GEMINI_API_KEY=... python bot.py
 Kol khbar kaywsel m3ah **Post Instagram** wajed (1080×1350, document = quality kamla), msawb b `cover.py`:
 
 - **Forme A** (l 3adiya): tswira l fo9 katdoub f navy, titre kbir, catégorie gold. Tswira katkbar/katsghar 3la 7sab toul d titre.
+- **Forme 3ajil**: forme A b pill "عاجل" 7amra w bar 7mer blast gold. Ila Gemini (judge) qal l khabar 3ajil (urgent), kaydkhel blast A/D.
 - **Forme D**: tswira 3amra l post + cadre gold. Ghir ila tswira l asliya HD (bla AI, zoom ≤ 1.15) w machi 3rida bzaf (w/h ≤ 1.35) w titre ≤ 3 stoura.
 - Tswira: l asliya ila ≥ 700px, sinon Google (chakhsiya), sinon tswira 7orra (+ "صورة تعبيرية").
 - Titre = instagram_title (bla emoji), catégorie men Gemini.

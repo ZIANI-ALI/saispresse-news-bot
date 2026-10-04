@@ -15,6 +15,7 @@ ASSETS = Path(__file__).resolve().parent / "assets"
 W, H = 1080, 1350
 NAVY, NAVY2 = (11, 31, 77), (22, 53, 122)
 GOLD, GOLD_L, WHITE = (201, 162, 39), (230, 198, 92), (255, 255, 255)
+RED = (204, 20, 38)  # akhbar 3ajila
 SITE = "saispress.com"
 RAQM = features.check("raqm")
 
@@ -93,12 +94,13 @@ def _vgrad(w: int, h: int, color, a0: int, a1: int, power: float = 1.0) -> Image
     return layer
 
 
-def _pill(dr, right: int, top: int, text: str, fnt, padx: int = 22, pady: int = 10) -> None:
+def _pill(dr, right: int, top: int, text: str, fnt, padx: int = 22, pady: int = 10,
+          fill=GOLD, color=NAVY) -> None:
     tw = _width(text, fnt)
     asc, desc = fnt.getmetrics()
     h = asc + desc + pady
-    dr.rounded_rectangle((right - tw - 2 * padx, top, right, top + h), radius=h // 2, fill=GOLD)
-    _text(dr, (right - padx, top + h / 2), text, fnt, NAVY, "rm")
+    dr.rounded_rectangle((right - tw - 2 * padx, top, right, top + h), radius=h // 2, fill=fill)
+    _text(dr, (right - padx, top + h / 2), text, fnt, color, "rm")
 
 
 def _logo(height: int) -> Image.Image:
@@ -115,7 +117,8 @@ def _lines(dr, lines, fnt, right: int, top: int, lh: int) -> None:
         _text(dr, (right, top + i * lh), ln, fnt, WHITE, "ra")
 
 
-def layout_a(img: Image.Image, title: str, category: str, crop: Crop, stock: bool) -> Image.Image:
+def layout_a(img: Image.Image, title: str, category: str, crop: Crop, stock: bool,
+             urgent: bool = False) -> Image.Image:
     fnt, lines = _fit_title(title, "Tajawal-Black.ttf", 900, STEPS_A)
     lh = int(fnt.size * 1.18)
     block = lh * len(lines)
@@ -131,11 +134,15 @@ def layout_a(img: Image.Image, title: str, category: str, crop: Crop, stock: boo
     ImageDraw.Draw(glow).ellipse((-200, text_top - 60, 1300, H + 150), fill=(*NAVY2, 140))
     im.alpha_composite(glow.filter(ImageFilter.GaussianBlur(120)))
     dr = ImageDraw.Draw(im)
-    if category:
+    accent = RED if urgent else GOLD
+    if urgent:  # "عاجل" kbira 7amra blast catégorie
+        _pill(dr, 1010, text_top - 96, "عاجل", _font("Tajawal-Black.ttf", 46), padx=30, pady=6,
+              fill=RED, color=WHITE)
+    elif category:
         _pill(dr, 1010, text_top - 78, category, _font("Tajawal-Bold.ttf", 34))
-    dr.rectangle((1022, text_top + 14, 1032, text_top + block - 22), fill=GOLD)
+    dr.rectangle((1022, text_top + 14, 1032, text_top + block - 22), fill=accent)
     _lines(dr, lines, fnt, 1000, text_top, lh)
-    dr.rectangle((0, H - 8, W, H), fill=GOLD)
+    dr.rectangle((0, H - (12 if urgent else 8), W, H), fill=accent)
     _text(dr, (70, H - 44), SITE, _font("Tajawal-Bold.ttf", 28), GOLD_L, "lm")
     lg = _logo(70)
     im.alpha_composite(lg, (W - lg.width - 50, 48))
@@ -184,12 +191,18 @@ def choose_layout(native: tuple[int, int], upscaled: bool, n_lines: int) -> str:
 
 
 def make_post(img: Image.Image, title: str, category: str, crop: Crop,
-              native: tuple[int, int], upscaled: bool = False, stock: bool = False) -> tuple[bytes, str]:
+              native: tuple[int, int], upscaled: bool = False, stock: bool = False,
+              urgent: bool = False) -> tuple[bytes, str]:
     title = clean_title(title)
     category = clean_title(category)[:20]
     _, lines = _fit_title(title, "Tajawal-ExtraBold.ttf", 860, STEPS_D)
+    if urgent:  # 3ajil: dima A b l a7mar
+        return _jpeg(layout_a(img, title, category, crop, stock, urgent=True)), "3ajil"
     kind = choose_layout(native, upscaled, len(lines))
-    im = (layout_d if kind == "D" else layout_a)(img, title, category, crop, stock)
+    return _jpeg((layout_d if kind == "D" else layout_a)(img, title, category, crop, stock)), kind
+
+
+def _jpeg(im: Image.Image) -> bytes:
     out = BytesIO()
     im.convert("RGB").save(out, "JPEG", quality=95, optimize=True, subsampling=0)
-    return out.getvalue(), kind
+    return out.getvalue()
