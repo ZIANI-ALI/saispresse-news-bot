@@ -138,8 +138,8 @@ def layout_d(img: Image.Image, title: str, category: str, crop: Crop, stock: boo
     im.alpha_composite(_vgrad(W, 220, (0, 0, 0), 100, 0), (0, 0))
     fnt, lines = _fit(title, "Tajawal-ExtraBold.ttf", 860, 3, 104, 56)
     lh = int(fnt.size * 1.2)
-    by1 = 1230
-    by0 = by1 - lh * len(lines) - 70
+    by1 = 1272
+    by0 = by1 - lh * len(lines) - 105  # 105 = padding + str d site dakhel l boîte
     box = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     ImageDraw.Draw(box).rectangle((60, by0, W - 60, by1), fill=(*NAVY, 235))
     im.alpha_composite(box)
@@ -149,7 +149,7 @@ def layout_d(img: Image.Image, title: str, category: str, crop: Crop, stock: boo
     if category:
         _pill(dr, W - 110, by0 - 62, category, _font("Tajawal-Bold.ttf", 32), padx=20, pady=8)
     dr.rectangle((28, 28, W - 28, H - 28), outline=GOLD, width=3)
-    _text(dr, (W // 2, H - 72), SITE, _font("Tajawal-Bold.ttf", 28), GOLD_L, "mm")
+    _text(dr, (95, by1 - 30), SITE, _font("Tajawal-Bold.ttf", 24), GOLD_L, "lm")
     lg = _logo(64)
     im.alpha_composite(lg, (W - lg.width - 65, 62))
     if stock:
