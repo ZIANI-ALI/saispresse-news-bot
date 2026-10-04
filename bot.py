@@ -17,8 +17,8 @@ Env:
   NO_AI=1              bla Gemini (test)
   DEDUP_HOURS          default 24 (nafs l khabar men source okhra f had l mudda ma kaytsiftsh)
   REPORT_HOUR          default 22 (rapport youmi: ina source kaynchr lowl)
-  MIN_SCORE            default 7 (ahamiya mn 10 bach ytsifet l khabar)
-  DAILY_MAX            default 30 (men b3d, ghir l akhbar l kbira jdan: score >= 9)
+  MIN_SCORE            default 7 (ahamiya mn 10: khabar wa7ed b had score f kol sa3a)
+  HIGH_SCORE           default 8 (men had score l fo9 kolchi kaytsifet, bla 7add)
 """
 
 from __future__ import annotations
@@ -69,7 +69,7 @@ DRY_RUN = os.environ.get("DRY_RUN") == "1"
 NO_AI = os.environ.get("NO_AI") == "1"
 DEDUP_HOURS = float(os.environ.get("DEDUP_HOURS", "24"))
 MIN_SCORE = int(os.environ.get("MIN_SCORE", "7"))      # ahamiya mn 10: ta7t menha ma kaytsiftsh
-DAILY_MAX = int(os.environ.get("DAILY_MAX", "30"))     # men b3d had l3adad f nhar, ghir score >= 9
+HIGH_SCORE = int(os.environ.get("HIGH_SCORE", "8"))    # >= hadi kolchi; bin MIN w HIGH: wa7ed f sa3a
 REPORT_HOUR = int(os.environ.get("REPORT_HOUR", "22"))  # sa3a dyal rapport l youmi (Casablanca)
 
 SEEN_TTL = 4 * 86400
@@ -896,7 +896,7 @@ def maybe_report(state: dict, sources: list[dict]) -> None:
     lines = [f"{i}. {esc(name)}: <b>{c['first']}</b> lowl · {c['dup']} mkerrer"
              for i, (name, c) in enumerate(ranking, 1)]
     tg_send(f"📊 <b>Rapport ({len(days)} iyam)</b>\n"
-            f"Akhbar tsiftu lyoum: <b>{state.get('sent', {}).get(today, 0)}</b> (7add: {DAILY_MAX}, score ≥ {MIN_SCORE})\n"
+            f"Akhbar tsiftu lyoum: <b>{state.get('sent', {}).get(today, 0)}</b> (score ≥ {HIGH_SCORE} kolchi · {MIN_SCORE}+ wa7ed f sa3a)\n"
             f"lowl = l source li jab l khabar 9bel l khrin · mkerrer = khabar kan wsel men source okhra\n\n"
             + "\n".join(lines))
 
@@ -940,11 +940,17 @@ def poll_once(state: dict, sources: list[dict]) -> None:
             remember_story(state, it)
             count(state, it["source"], "first")
             sent_today = state.setdefault("sent", {}).get(today, 0)
-            needed = MIN_SCORE if sent_today < DAILY_MAX else max(MIN_SCORE, 9)
-            if score < needed:
+            hour = datetime.now(TZ).strftime("%Y-%m-%d %H")
+            if score < MIN_SCORE:
                 log(f"[ma mohimch {score}/10] {it['source']}: {it['title'][:70]}")
                 save_state(state)
                 continue
+            if score < HIGH_SCORE:
+                if state.get("mid_hour") == hour:  # dejà tsifet wa7ed mutawasit had sa3a
+                    log(f"[wa7ed f sa3a {score}/10] {it['source']}: {it['title'][:70]}")
+                    save_state(state)
+                    continue
+                state["mid_hour"] = hour
             state["sent"] = {today: sent_today + 1}
             save_state(state)
             process(it, sent_today + 1, score)

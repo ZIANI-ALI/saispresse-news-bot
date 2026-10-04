@@ -6,7 +6,7 @@ Kayraqeb ~24 source dyal l akhbar f l Maghrib kol 60 tanya. Kol khabar jdid kayw
 2. **النسخة 1**: nafs l khabar b siyagha jdida (bla zyada, bla na9s, arqam/asma/iqtibasat kif ma homa).
 3. **النسخة 2**: version qsira l Instagram + hashtags.
 
-**Ghir l mohim:** Gemini kay3ti l kol khabar note d ahamiya mn 10. Kaytsifet ghir li 3ndo `MIN_SCORE` (7) wla ktar, w ma kaytfotch `DAILY_MAX` (30) f nhar. Men b3d l 7add, kaydouz ghir l 3ajil (9-10). Tqder tbdel had l ar9am men Variables.
+**Ghir l mohim:** Gemini kay3ti l kol khabar note d ahamiya mn 10. Kolchi li 3ndo `HIGH_SCORE` (8) wla ktar kaytsifet bla 7add. Li 3ndo `MIN_SCORE` (7): khabar wa7ed f kol sa3a, l khrin kaytse77aw. Tqder tbdel had l ar9am men Variables.
 
 **Kol khabar:** tswira + 3onwan asli (+ note) → النسخة 1 → Instagram (3onwan viral + 2-3 fiqrat). Kol khabar kaybda b khatt fasel w ra9mo f nhar.
 
@@ -30,7 +30,7 @@ Sources: `sources.json` (`enabled: false` bach t7bes wa7ed). Sites li kaybloquiw
 5. **Test**: Actions → *News bot* → *Run workflow* (5 d9aye9). Awel dowra katsifet "✅ Bot khdam" w ma katsifetsh l akhbar l 9dam.
 6. **Tkhdem 24/24**: tab *Variables* → `NEWS_BOT_ENABLED` = `true`, men b3d *Run workflow* mra we7da. Kol run melli ysali kay-lanci run jay bo7do. Bach t7bso: `NEWS_BOT_ENABLED` = `false`.
 
-Variables ikhtiyariyin: `MIN_SCORE`, `DAILY_MAX`, `GEMINI_MODELS`, `POLL_SECONDS`, `RUN_MINUTES`.
+Variables ikhtiyariyin: `MIN_SCORE`, `HIGH_SCORE`, `GEMINI_MODELS`, `POLL_SECONDS`, `RUN_MINUTES`.
 
 ## Mohim
 
