@@ -10,7 +10,7 @@ Kayraqeb ~24 source dyal l akhbar f l Maghrib kol 60 tanya. Kol khabar jdid kayw
 
 **Kol khabar:** tswira + 3onwan asli (+ note) → النسخة 1 → Instagram (3onwan viral + 2-3 fiqrat). Kol khabar kaybda b khatt fasel w ra9mo f nhar.
 
-**Tsawer 7orra (Pexels):** zid secret `PEXELS_API_KEY` (majjani men https://www.pexels.com/api/). Kol khabar kayjih tswira HD bla copyright f 3 formats (portrait 4:5, carré 1:1, site 16:9), mkhtara 3la 7sab l mawdou3. Tswira d l source katb9a référence bark.
+**Tsawer 7orra (Pexels / Pixabay):** zid secret `PIXABAY_API_KEY` (majjani, l key kayban f https://pixabay.com/api/docs/ men b3d login) wla `PEXELS_API_KEY` (https://www.pexels.com/api/, daba mwe99fin keys jdad). Ila kaynin b jouj, Pexels lowel w Pixabay ila ma l9a walou. Kol khabar kayjih tswira HD bla copyright f 3 formats (portrait 4:5, carré 1:1, site 16:9), mkhtara 3la 7sab l mawdou3. Tswira d l source katb9a référence bark.
 
 **Bla tkrar:** nafs l khabar men sources mkhtalfin kaywsel mra we7da (l source lowla). Ila 3onwan tchabeh, Gemini kayqarer wach nafs l 7adath wla tatawor jdid.
 

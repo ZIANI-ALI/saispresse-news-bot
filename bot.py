@@ -10,6 +10,7 @@ Env:
   GEMINI_MIN_INTERVAL  default 7 (t-tawan bin appels, free tier ~10 req/min)
   STATE_FILE           default state/seen.json
   PEXELS_API_KEY       ikhtiyari: tswira 7orra (bla copyright) l kol khabar men pexels.com
+  PIXABAY_API_KEY      ikhtiyari: nafs l haja men pixabay.com (ila Pexels ma kaynch wla ma l9a walou)
   DRY_RUN=1            ytba3 f terminal bla Telegram
   NO_AI=1              bla Gemini (test)
   DEDUP_HOURS          default 24 (nafs l khabar men source okhra f had l mudda ma kaytsiftsh)
@@ -49,6 +50,8 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
 PEXELS_KEY = os.environ.get("PEXELS_API_KEY", "")
+PIXABAY_KEY = os.environ.get("PIXABAY_API_KEY", "")
+FREE_IMAGES = bool(PEXELS_KEY or PIXABAY_KEY)
 GEMINI_MODELS = [m.strip() for m in os.environ.get("GEMINI_MODELS", "").split(",") if m.strip()]
 
 RUN_MINUTES = float(os.environ.get("RUN_MINUTES", "0"))
@@ -285,6 +288,39 @@ def pexels_image(query: str) -> tuple[Image.Image, str] | None:
     if not img:
         return None
     return img, f"Photo: {photo.get('photographer', '')} / Pexels"
+
+
+def pixabay_image(query: str) -> tuple[Image.Image, str] | None:
+    """Tswira 7orra men Pixabay (Content License: tijari msmou7, bla credit wajib)."""
+    if not PIXABAY_KEY or not query.strip():
+        return None
+    try:
+        r = http.get("https://pixabay.com/api/",
+                     params={"key": PIXABAY_KEY, "q": query[:100], "image_type": "photo",
+                             "orientation": "horizontal", "safesearch": "true", "per_page": 10,
+                             "min_width": 1280},
+                     timeout=20)
+        r.raise_for_status()
+        hits = r.json().get("hits", [])
+    except (requests.RequestException, ValueError) as e:
+        log(f"[pixabay KO] {e.__class__.__name__}")
+        return None
+    if not hits:
+        log(f"[pixabay] walou l '{query}'")
+        return None
+    hit = random.choice(hits[:5])
+    url = hit.get("fullHDURL") or hit["largeImageURL"]
+    img = None
+    if "_1280." in url:  # CDN kay3ti 1920 ila beddelna l suffix
+        img = download_image(url.replace("_1280.", "_1920."))
+    img = img or download_image(url)
+    if not img:
+        return None
+    return img, f"Photo: {hit.get('user', '')} / Pixabay"
+
+
+def free_image(query: str) -> tuple[Image.Image, str] | None:
+    return pexels_image(query) or pixabay_image(query)
 
 
 def smart_box(img: Image.Image, size: tuple[int, int]) -> tuple[int, int, int, int]:
@@ -663,7 +699,7 @@ def process(item: dict, number: int, score: int) -> None:
         tg_send(f"⚠️ Tswira l asliya sghira ({img.width}×{img.height}): f l portrait ghatkoun zoom "
                 f"×{zoom_factor(img, INSTA_SIZE):.1f}, quality ghatn9es. A7san tbdelha.", reply_to=alert_id)
     if insta:
-        label = ("⚠️ Tswira d l source: référence bark (3endha copyright)" if PEXELS_KEY
+        label = ("⚠️ Tswira d l source: référence bark (3endha copyright)" if FREE_IMAGES
                  else "🖼 HD: portrait 4:5 · carré 1:1 · site 16:9 (tswira d l source: 3endha copyright)")
         tg_album(all_formats(img), label, reply_to=alert_id)
 
@@ -683,7 +719,7 @@ def process(item: dict, number: int, score: int) -> None:
             reply_to=alert_id)
     tg_send(f"📱 <b>النسخة 2 (Instagram)</b>\n\n<b>{esc(out['instagram_title'].strip())}</b>\n\n"
             f"{esc(out['instagram'].strip())}{credit}", reply_to=alert_id)
-    free = pexels_image(out.get("image_query", ""))
+    free = free_image(out.get("image_query", ""))
     if free:
         img_free, photo_credit = free
         tg_album(all_formats(img_free),
