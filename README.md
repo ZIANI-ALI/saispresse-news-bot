@@ -66,6 +66,6 @@ Kol khbar kaywsel m3ah **Post Instagram** wajed (1080×1350, document = quality 
 - **Forme A** (l 3adiya): tswira l fo9 katdoub f navy, titre kbir, catégorie gold. Tswira katkbar/katsghar 3la 7sab toul d titre.
 - **Forme 3ajil**: forme A b pill "عاجل" 7amra w bar 7mer blast gold. Ila Gemini (judge) qal l khabar 3ajil (urgent) w score 9-10 (> `HIGH_SCORE`), kaydkhel blast A/D.
 - **Forme D**: tswira 3amra l post + cadre gold. Ghir ila tswira l asliya HD (bla AI, zoom ≤ 1.15) w machi 3rida bzaf (w/h ≤ 1.35) w titre ≤ 3 stoura.
-- Tswira: l asliya ila ≥ 700px, sinon Google (chakhsiya), sinon tswira 7orra (+ "صورة تعبيرية").
+- Tswira: l asliya ila ≥ 600px (1200×630 dyal sites kaydkhel), sinon Google (chakhsiya), sinon tswira 7orra (+ "صورة تعبيرية").
 - Titre = instagram_title (bla emoji), catégorie men Gemini.
 - Alwan: navy `#0B1F4D` / `#16357A`, gold `#C9A227` / `#E6C65C`. Font Tajawal (OFL), logo `assets/logo.png`.

@@ -909,10 +909,10 @@ def covers(item: dict, out: dict, img, small, upscaled: bool, alert_id: int | No
 
 
 def send_post(out: dict, choices: list[tuple], reply_to: int | None, note: str = "", urgent: bool = False) -> None:
-    """Cover Instagram wajed: l awla tswira l asliya ila kant >= 700px, sinon Google, sinon 7orra."""
+    """Cover Instagram wajed: l awla tswira l asliya ila kant >= 600px (1200x630 dyal sites), sinon Google, sinon 7orra."""
     if not choices:
         return
-    pick = next((c for c in choices if min(c[1]) >= 700), choices[0])
+    pick = next((c for c in choices if min(c[1]) >= 600), choices[0])
     img, native, upscaled, stock, origin = pick
     try:
         data, kind = cover.make_post(img, out["instagram_title"], out.get("category", ""), crop_to,
