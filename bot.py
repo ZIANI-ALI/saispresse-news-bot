@@ -991,7 +991,7 @@ def poll_once(state: dict, sources: list[dict]) -> None:
     for it in fresh:
         try:
             dup, score, intl, urgent = judge(it, state["stories"])
-            urgent = urgent and score >= HIGH_SCORE  # 3ajil ghir l akhbar l kbar
+            urgent = urgent and score > HIGH_SCORE  # 3ajil ghir 9-10
             if dup:
                 count(state, it["source"], "dup")
                 log(f"[mkerrer] {it['source']}: {it['title'][:60]} == {dup['source']}: {dup['title'][:60]}")
