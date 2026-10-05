@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import base64
 import calendar
+import hashlib
 import html
 import json
 import os
@@ -533,6 +534,11 @@ def official_person_image(name_en: str, news: str = "") -> tuple[Image.Image, st
 
 
 serper_calls = 0  # kayt7seb f state (rapport: ch7al b9a mn credits)
+serper_dead = ""   # sbab ila Serper rfed (credits salaw / key ghalet) f had poll
+serper_ok = False  # Serper jaweb mzyan f had poll
+serper_paused = False  # salaw: ma n3iytouch 7tta yfout SERPER_RETRY_HOURS
+SERPER_RETRY_HOURS = 6
+SERPER_LOW = 100   # alert ila b9aw <= hadchi (compteur)
 
 
 def ddg_person_image(name: str, avoid_domain: str = "") -> tuple[Image.Image, str] | None:
@@ -564,20 +570,25 @@ def ddg_person_image(name: str, avoid_domain: str = "") -> tuple[Image.Image, st
 def google_person_image(name: str, avoid_domain: str = "", name_en: str = "") -> tuple[Image.Image, str] | None:
     """Tswira HD dyal chakhsiya: DuckDuckGo l owel (mjani), ila walou Google Images (via Serper, credits).
     Tsawer 3endhom copyright: référence."""
-    global serper_calls
+    global serper_calls, serper_dead, serper_ok
     if not name.strip():
         return None
     found = ddg_person_image(name, avoid_domain) or \
         (ddg_person_image(name_en, avoid_domain) if name_en.strip() and name_en.strip() != name.strip() else None)
-    if found or not SERPER_KEY:
+    if found or not SERPER_KEY or serper_paused or serper_dead:
         return found
     log(f"[web img] Bing/DuckDuckGo walou -> Serper l '{name}'")
     serper_calls += 1
     try:
         r = http.post("https://google.serper.dev/images", headers={"X-API-KEY": SERPER_KEY},
                       json={"q": name, "gl": "ma", "hl": "ar", "num": 20}, timeout=20)
+        if r.status_code in (400, 401, 402, 403) and (r.status_code != 400 or "credit" in r.text.lower()):
+            serper_dead = f"HTTP {r.status_code}: {r.text[:150]}"  # credits salaw wla key ma b9atch sal7a
+            log(f"[serper KO] {serper_dead}")
+            return None
         r.raise_for_status()
         results = r.json().get("images", [])
+        serper_ok = True
     except (requests.RequestException, ValueError) as e:
         log(f"[google img KO] {e.__class__.__name__} {getattr(e.response, 'status_code', '')}")
         return None
@@ -1339,9 +1350,65 @@ def maybe_report(state: dict, sources: list[dict]) -> None:
             + "\n".join(lines))
 
 
+def serper_alert(text_html: str) -> None:
+    """Alert kbira (w mpinniya ila l bot admin) bach ma tfoutekch."""
+    msg_id = tg_send(text_html)
+    if msg_id and not DRY_RUN:
+        try:
+            tg_post("pinChatMessage", 20, json={"chat_id": TELEGRAM_CHAT_ID, "message_id": msg_id,
+                                                "disable_notification": False})
+        except requests.RequestException:
+            pass
+
+
+def serper_check(state: dict) -> None:
+    """Compteur d Serper + alerts: 9rib ysalaw, salaw (wla key ghalet), rja3 ykhdem."""
+    global serper_calls, serper_dead, serper_ok, serper_paused
+    if serper_calls:
+        state["serper"] = state.get("serper", 0) + serper_calls
+        serper_calls = 0
+    key_id = hashlib.sha256(SERPER_KEY.encode()).hexdigest()[:12] if SERPER_KEY else ""
+    if key_id and state.get("serper_key") not in (None, key_id):  # key jdida f GitHub: n3awdo njerbo daba
+        state.pop("serper_out", None)
+        state.pop("serper_low", None)
+        state["serper"] = 0
+        tg_send(f"🔑 <b>Key Serper jdida</b>. Compteur bda mn zero: ~{SERPER_CREDITS} credit.")
+    if key_id:
+        state["serper_key"] = key_id
+    left = SERPER_CREDITS - state.get("serper", 0)
+    if left > SERPER_LOW:
+        state.pop("serper_low", None)  # SERPER_CREDITS tbeddel (credits jdad)
+    if serper_dead:
+        if not state.get("serper_out"):
+            serper_alert(
+                "🚨🚨🚨 <b>SERPER SALA / MA B9ACH KHDDAM</b> 🚨🚨🚨\n\n"
+                "Google tsawer (Serper) rfed l recherche: credits salaw wla l key ma b9atch sal7a.\n"
+                f"<code>{esc(serper_dead)}</code>\n\n"
+                "<b>Chno dir:</b>\n"
+                "1. Dir compte jdid f serper.dev (2500 credit mjaniya) wla chri credits.\n"
+                "2. Beddel secret <code>SERPER_API_KEY</code> f GitHub (Settings → Secrets → Actions).\n"
+                "3. Ila compte jdid: 7ett variable <code>SERPER_CREDITS</code> = 2500.\n\n"
+                "F had l w9t bot kaykhdem b Bing/DuckDuckGo bo7dhom; kay3awed yjereb Serper kol "
+                f"{SERPER_RETRY_HOURS} sa3at.")
+        state["serper_out"] = time.time()
+    elif serper_ok and state.get("serper_out"):
+        state.pop("serper_out")
+        state["serper"] = 0  # compte/credits jdad: compteur mn zero (b SERPER_CREDITS)
+        state.pop("serper_low", None)
+        tg_send(f"✅ <b>Serper rja3 khddam</b>. Compteur bda mn zero: ~{SERPER_CREDITS} credit "
+                "(beddel variable <code>SERPER_CREDITS</code> ila machi hadi).")
+    elif SERPER_KEY and not state.get("serper_out") and left <= SERPER_LOW and not state.get("serper_low"):
+        state["serper_low"] = True
+        serper_alert(f"⚠️⚠️ <b>Serper 9rib ysala</b>: b9aw ~<b>{max(0, left)}</b> credit.\n"
+                     "Wjjed compte jdid f serper.dev wla chri credits, w beddel <code>SERPER_API_KEY</code> f GitHub.")
+    serper_dead, serper_ok = "", False
+    serper_paused = bool(state.get("serper_out")) and time.time() - state["serper_out"] < SERPER_RETRY_HOURS * 3600
+
+
 def poll_once(state: dict, sources: list[dict]) -> None:
     items = fetch_all(sources)
     now = time.time()
+    serper_check(state)  # serper_paused men state (w compteur)
     state.setdefault("stories", [])
     state.setdefault("stats", {})
     state["stories"] = [st for st in state["stories"] if now - st["ts"] <= DEDUP_HOURS * 3600]
@@ -1419,10 +1486,7 @@ def poll_once(state: dict, sources: list[dict]) -> None:
             sent += 1
         except Exception as e:  # khbar we7ed ma khasshch ywa9ef l bot
             log(f"[process KO] {it['link']}: {e!r}")
-    global serper_calls
-    if serper_calls:
-        state["serper"] = state.get("serper", 0) + serper_calls
-        serper_calls = 0
+    serper_check(state)
     log(f"{len(items)} items, {len(fresh)} jdad, {sent} tsiftu."
         + (f" {deferred} f tsna (Gemini quota)." if deferred else ""))
     if not NO_AI:
