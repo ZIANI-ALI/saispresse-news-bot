@@ -4,7 +4,7 @@ Kayraqeb ~24 source dyal l akhbar f l Maghrib kol 60 tanya. Kol khabar jdid kayw
 
 1. **Alerte** (sa3a ghir tban): source, sa3a, 3onwan, lien.
 2. **النسخة 1**: nafs l khabar b siyagha jdida (bla zyada, bla na9s, arqam/asma/iqtibasat kif ma homa).
-3. **النسخة 2**: version qsira l Instagram + hashtags.
+3. **Description d Instagram**: message bo7do, wajed l copie kif howa (bla header w bla titre, 7it titre kayn f cover) + hashtags.
 
 **Ghir l mohim:** Gemini kay3ti l kol khabar note d ahamiya mn 10. Kolchi li 3ndo `MIN_SCORE` (7) wla ktar kaytsifet bla 7add (bla limite f sa3a). `HIGH_SCORE` (8): ghir l 9-10 (> 8) kaykounou 3ajil. Tqder tbdel had l ar9am men Variables.
 
@@ -46,6 +46,10 @@ Variables ikhtiyariyin: `MIN_SCORE`, `HIGH_SCORE`, `GEMINI_MODELS`, `POLL_SECOND
 ## Limites Gemini free
 
 Free tier 3ndo limite d requests f l youm, w kol model 3ndo quota dyalo. Bot kayst3mel ga3 l models `flash` w `flash-lite` li f compte (a7dath flash, a7dath flash-lite, men ba3d l b9iya); model li rja3 429 kayt7bes (1 min ila quota d d9i9a, 1 sa3a ila quota d nhar) w kaydouz l li mor.
+
+**Ktaba ghir b flash:** rewrite w titre d cover kaytktbo ghir b models `flash` (machi `flash-lite`), bach l3arbiya tkoun n9iya. Ila quota d flash salat, l khabar kaydkhol queue d retry (7tta 12 sa3a) w ma kaytktebch b model d3if. `flash-lite` kayb9a ghir l judge (ma kaykatebch).
+
+**Call wa7d l kol post:** judge (b l groupe) kay3ti m3a score: category, recherches d tswira, w smiya d chakhsiya. Bot kayjme3 tsawer (chakhsiya mn Openverse + ta3biriya) 9bel l ktaba, w Gemini kaykteb l versions w kaykhtar tswira f nafs l call (`person_choice`, `image_choice`). Khabar bla hints (9dim f queue): ikhtiyar d tswira f call bo7do b7al 9bel.
 
 **Judge b l groupe:** akhbar jdad kaytsnaw `JUDGE_WAIT` (300s = 5 d9aye9) f queue, men ba3d Gemini kayjudgihom f call wa7d (7tta `JUDGE_BATCH` = 15 khabar). F nafs l call kaychouf 3anawin d ga3 l posts dyal 24 sa3a (7tta 80), bach y3ref tkrar b ma3na 7tta ila tbeddlat siyagha. Khabar ta9riban b nafs l 3onwan kaytchedd bla Gemini. Ila khabar wsel bla nass w tsifet, melli kaywsel nass dyalo kaytsiftou ghir النسخة 1/2 (bla covers 3awtani).
 
