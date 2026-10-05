@@ -45,10 +45,12 @@ Variables ikhtiyariyin: `MIN_SCORE`, `HIGH_SCORE`, `GEMINI_MODELS`, `POLL_SECOND
 
 ## Limites Gemini free
 
-Free tier 3ndo limite d requests f l youm, w kol model 3ndo quota dyalo. Bot kaykhtar automatiquement a7dath flash, a7dath flash-lite w flash tani; model li rja3 429 kayt7bes (1 min ila quota d d9i9a, 1 sa3a ila quota d nhar) w kaydouz l li mor.
+Free tier 3ndo limite d requests f l youm, w kol model 3ndo quota dyalo. Bot kayst3mel ga3 l models `flash` w `flash-lite` li f compte (a7dath flash, a7dath flash-lite, men ba3d l b9iya); model li rja3 429 kayt7bes (1 min ila quota d d9i9a, 1 sa3a ila quota d nhar) w kaydouz l li mor.
+
+**Judge b l groupe:** akhbar jdad kaytsnaw `JUDGE_WAIT` (300s = 5 d9aye9) f queue, men ba3d Gemini kayjudgihom f call wa7d (7tta `JUDGE_BATCH` = 15 khabar). F nafs l call kaychouf 3anawin d ga3 l posts dyal 24 sa3a (7tta 80), bach y3ref tkrar b ma3na 7tta ila tbeddlat siyagha. Khabar ta9riban b nafs l 3onwan kaytchedd bla Gemini. Ila khabar wsel bla nass w tsifet, melli kaywsel nass dyalo kaytsiftou ghir النسخة 1/2 (bla covers 3awtani).
 
 Ila salaw kolchi models:
-- Akhbar jdad ma kaytjajouch: kayb9aw f tsna w kayt3awdou f dowra jaya (7tta `MAX_AGE_HOURS`, 3 sa3at).
+- Akhbar jdad ma kaytjajouch: kayb9aw f queue d judge w kayt3awdou f dowra jaya (7tta `MAX_AGE_HOURS`, 3 sa3at).
 - Khabar li tsifet (alerte) w Gemini ma ktebch النسخة 1/2: kaydkhel f queue (`retry`), w kayt3awed wa7ed f kol dowra 7tta 12 sa3a. Versions + covers kaywslo reply 3la l alerte.
 
 ## Test local
