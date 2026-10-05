@@ -122,20 +122,28 @@ def feed_url(src: dict) -> str:
 
 
 _feed_ko_logged: set[str] = set()
+RELAY_PAUSE_HOURS = 6
+_relay_paused: dict[str, float] = {}  # domain -> w9t fach n3awdo njerbo relay (site blocka 7tta Cloudflare)
 
 
 def fetch(url: str, timeout: int = 20) -> requests.Response:
     """http.get; ila site blocka GitHub (403/429/connexion), kan3awdo men Cloudflare Worker."""
+    domain = urlparse(url).netloc
+    relay = RELAY_URL and _relay_paused.get(domain, 0) <= time.time()
     try:
         r = http.get(url, timeout=timeout)
-        if r.status_code not in (401, 403, 429, 503) or not RELAY_URL:
+        if r.status_code not in (401, 403, 429, 503) or not relay:
             return r
     except (requests.ConnectionError, requests.Timeout):
-        if not RELAY_URL:
+        if not relay:
             raise
     r = http.get(RELAY_URL, params={"url": url}, headers={"X-Relay-Key": RELAY_KEY}, timeout=timeout + 10)
     if not r.ok:  # "forbidden" = RELAY_KEY machi bhal bhal; sinon site blocka 7tta Cloudflare
-        log(f"[relay KO] HTTP {r.status_code} {urlparse(url).netloc}: {r.text[:60]!r}")
+        if r.status_code == 403 and "forbidden" not in r.text[:60].lower():
+            _relay_paused[domain] = time.time() + RELAY_PAUSE_HOURS * 3600  # bla 3awed kol d9i9a
+            log(f"[relay KO] HTTP 403 {domain}: {r.text[:60]!r} -> relay mwe9ef {RELAY_PAUSE_HOURS}h (Google News)")
+        else:
+            log(f"[relay KO] HTTP {r.status_code} {domain}: {r.text[:60]!r}")
     return r
 
 
