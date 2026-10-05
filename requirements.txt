@@ -4,3 +4,4 @@ requests>=2.31,<3
 Pillow>=10,<13
 numpy>=1.26,<3
 onnxruntime>=1.17,<2
+ddgs>=9.6,<10

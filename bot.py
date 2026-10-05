@@ -535,11 +535,43 @@ def official_person_image(name_en: str, news: str = "") -> tuple[Image.Image, st
 serper_calls = 0  # kayt7seb f state (rapport: ch7al b9a mn credits)
 
 
-def google_person_image(name: str, avoid_domain: str = "") -> tuple[Image.Image, str] | None:
-    """Tswira HD dyal chakhsiya men Google Images (via Serper). Tsawer 3endhom copyright: référence."""
+def ddg_person_image(name: str, avoid_domain: str = "") -> tuple[Image.Image, str] | None:
+    """Tswira HD dyal chakhsiya men Bing/DuckDuckGo Images (lib ddgs: mjani, bla key).
+    Tsawer 3endhom copyright: référence."""
+    results = []
+    for backend in ("bing", "duckduckgo"):
+        try:
+            from ddgs import DDGS
+            results = DDGS(timeout=20).images(name, safesearch="moderate", max_results=30, backend=backend)
+            if results:
+                break
+        except Exception as e:  # ddgs machi API rasmiya: ay mochkil (blocage, ratelimit) -> backend akhor / Serper
+            log(f"[{backend} img KO] {e.__class__.__name__}: {str(e)[:100]}")
+    norm = lambda t: re.sub("[أإآ]", "ا", t.lower())
+    words = [w for w in re.findall(r"\w{3,}", norm(name))]
+    # tartib d DuckDuckGo (relevance) kayb9a; titre khasso yjib smiya (bla sites ghriba)
+    results = [x for x in results if x.get("image") and int(x.get("width") or 0) >= 1000
+               and int(x.get("height") or 0) >= 700 and avoid_domain not in (urlparse(x.get("url") or "").netloc or "-")
+               and words and words[-1] in norm(x.get("title") or "")]
+    for x in results[:5]:
+        img = download_image(x["image"])
+        if img and img.width >= 1000:
+            return img, f"{x.get('source') or urlparse(x.get('url') or '').netloc} · {img.width}×{img.height}"
+    log(f"[web img] walou HD l '{name}'")
+    return None
+
+
+def google_person_image(name: str, avoid_domain: str = "", name_en: str = "") -> tuple[Image.Image, str] | None:
+    """Tswira HD dyal chakhsiya: DuckDuckGo l owel (mjani), ila walou Google Images (via Serper, credits).
+    Tsawer 3endhom copyright: référence."""
     global serper_calls
-    if not SERPER_KEY or not name.strip():
+    if not name.strip():
         return None
+    found = ddg_person_image(name, avoid_domain) or \
+        (ddg_person_image(name_en, avoid_domain) if name_en.strip() and name_en.strip() != name.strip() else None)
+    if found or not SERPER_KEY:
+        return found
+    log(f"[web img] Bing/DuckDuckGo walou -> Serper l '{name}'")
     serper_calls += 1
     try:
         r = http.post("https://google.serper.dev/images", headers={"X-API-KEY": SERPER_KEY},
@@ -1210,12 +1242,13 @@ def covers(item: dict, out: dict, img, small, upscaled: bool, alert_id: int | No
                  f"✅ <b>Tswira 7orra dyal {esc(person_name)}</b> (rasmiya / CC) · portrait 4:5 · carré 1:1 · site 16:9\n"
                  f"{esc(o_credit)}", reply_to=alert_id)
     elif person_name:
-        person = google_person_image(person_name, urlparse(item["link"]).netloc.removeprefix("www."))
+        person = google_person_image(person_name, urlparse(item["link"]).netloc.removeprefix("www."),
+                                     out.get("main_person_en", ""))
         if person:
             img_p, p_src = person
             choices.append((img_p, img_p.size, False, False, "Google"))
             tg_album(all_formats(img_p),
-                     f"🔎 <b>Tswira HD khra dyal {esc(person_name)}</b> (Google) · {esc(p_src)}\n"
+                     f"🔎 <b>Tswira HD khra dyal {esc(person_name)}</b> (web) · {esc(p_src)}\n"
                      f"⚠️ 3endha copyright: référence", reply_to=alert_id)
     # tswira ta3biriya ghir ila ma kaynach tswira d l chakhsiya (bla Gemini zayd)
     free = None if any(c[4] in ("rasmiya", "Google") for c in choices) else \
