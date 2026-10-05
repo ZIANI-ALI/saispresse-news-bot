@@ -873,7 +873,8 @@ _MODEL_RE = re.compile(r"^gemini-(\d+(?:\.\d+)*)-flash(-lite)?$")
 
 
 def discover_models() -> list[str]:
-    """Kayjib l models li mt-wafrin l had l key: a7dath flash, a7dath flash-lite, w flash tani."""
+    """Kayjib ga3 l models flash w flash-lite li mt-wafrin l had l key (kol wa7d 3ndo quota dyalo):
+    a7dath flash, a7dath flash-lite, men ba3d l b9iya (flash 9bel lite)."""
     try:
         r = http.get("https://generativelanguage.googleapis.com/v1beta/models",
                      params={"pageSize": 1000}, headers={"x-goog-api-key": GEMINI_KEY}, timeout=30)
@@ -888,7 +889,7 @@ def discover_models() -> list[str]:
         found.sort(key=lambda f: (tuple(-v for v in f[0]), f[1]))
         flash = [n for _, lite, n in found if not lite]
         lite = [n for _, is_lite, n in found if is_lite]
-        picked = flash[:1] + lite[:1] + flash[1:2]
+        picked = flash[:1] + lite[:1] + flash[1:] + lite[1:]
         if picked:
             log(f"Gemini models: {', '.join(picked)}")
             return picked
@@ -1173,10 +1174,21 @@ def process(item: dict, number: int, score: int, urgent: bool = False,
             retry: list | None = None) -> None:
     when = datetime.fromtimestamp(item["ts"], TZ).strftime("%H:%M")
     header = (f"━━━━━━━━━━━━━━━━\n"
-              + ("📄 <b>النص الكامل وصل</b> (l khabar tsifet 9bel ghir b l 3onwan)\n" if followup else "")
+              + ("📄 <b>النص الكامل وصل</b> (l khabar w covers tsiftu 9bel ghir b l 3onwan: hna ghir النسخة 1 w 2)\n" if followup else "")
               + f"{'🚨 <b>عاجل</b> · ' if urgent else ''}🔴 <b>خبر {number}</b> · ⭐ {score}/10 · {esc(item['source'])} · {when}\n\n"
               f"<b>{esc(item['title'])}</b>\n<a href=\"{html.escape(item['link'])}\">فتح الخبر</a>")
     text, image_urls = data or (("", []) if NO_AI else article_data(item))
+    if followup and not NO_AI and len(text) >= MIN_TEXT_FOR_AI:
+        # cover w tsawer tsiftu deja m3a l 3onwan: daba ghir النسخة 1/2 (bla Gemini d tsawer, bla covers 3awtani)
+        alert_id = tg_send(header, preview=True)
+        try:
+            out = rewrite(item, text)
+        except GeminiError as e:
+            log(f"[gemini KO] {item['link']}: {e}")
+            tg_send(f"⚠️ Gemini ma jawebsh: {esc(str(e)[:500])}", reply_to=alert_id)
+            return
+        versions(item, out, None, None, False, alert_id, urgent, with_covers=False)
+        return
     img = best_image(image_urls) if image_urls else None
     small, upscaled = (img.size if img else None), False
     if img:
@@ -1220,13 +1232,15 @@ def process(item: dict, number: int, score: int, urgent: bool = False,
     versions(item, out, img, small, upscaled, alert_id, urgent)
 
 
-def versions(item: dict, out: dict, img, small, upscaled: bool, alert_id: int | None, urgent: bool) -> None:
+def versions(item: dict, out: dict, img, small, upscaled: bool, alert_id: int | None, urgent: bool,
+             with_covers: bool = True) -> None:
     credit = f"\n\n{esc(item['credit'])}" if item.get("credit") else ""
     tg_send(f"📰 <b>النسخة 1 (كاملة)</b>\n\n<b>{esc(out['title'].strip())}</b>\n\n{esc(out['article'].strip())}{credit}",
             reply_to=alert_id)
     tg_send(f"📱 <b>النسخة 2 (Instagram)</b>\n\n<b>{esc(out['instagram_title'].strip())}</b>\n\n"
             f"{esc(out['instagram'].strip())}{credit}", reply_to=alert_id)
-    covers(item, out, img, small, upscaled, alert_id, urgent=urgent)
+    if with_covers:
+        covers(item, out, img, small, upscaled, alert_id, urgent=urgent)
 
 
 RETRY_HOURS = 12
