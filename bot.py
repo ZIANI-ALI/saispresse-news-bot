@@ -137,6 +137,11 @@ def fetch(url: str, timeout: int = 20) -> requests.Response:
     return r
 
 
+# Maqalat ra2y (categories d feed wla URL): ma kaykounouch 3ajil abadan
+_OPINION_RE = re.compile(r"رأي|آراء|اراء|كتاب|كُتّاب|منبر|أعمدة|عمود|تحليل|opinion|tribune|chronique|columns?\b|/araa/",
+                         re.IGNORECASE)
+
+
 def fetch_feed(src: dict) -> list[dict]:
     try:
         r = fetch(feed_url(src)) if src["type"] == "rss" else http.get(feed_url(src), timeout=20)
@@ -191,6 +196,8 @@ def fetch_feed(src: dict) -> list[dict]:
             "content_html": content,
             "summary_html": e.get("summary", ""),
             "image": "" if src["type"] == "gnews" else image,
+            "opinion": bool(_OPINION_RE.search(" ".join([t.get("term") or "" for t in e.get("tags") or []]
+                                                        + [urlparse(link).path]))),
         })
     return items
 
@@ -1155,7 +1162,7 @@ def poll_once(state: dict, sources: list[dict]) -> None:
                 foot = waiting.get("foot", foot)
             else:
                 count(state, it["source"], "first")
-            urgent = urgent and score > HIGH_SCORE  # 3ajil ghir 9-10
+            urgent = urgent and score > HIGH_SCORE and not it.get("opinion")  # 3ajil ghir 9-10, w machi ra2y
             sent_today = state.setdefault("sent", {}).get(today, 0)
             if score < MIN_SCORE:
                 log(f"[ma mohimch {score}/10] {it['source']}: {it['title'][:70]}")
