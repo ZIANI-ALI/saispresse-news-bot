@@ -82,6 +82,7 @@ SEEN_TTL = 4 * 86400
 MIN_TEXT_FOR_AI = 200
 MAX_TEXT_FOR_AI = 12000
 TZ = ZoneInfo("Africa/Casablanca")
+QUOTA_TZ = ZoneInfo("America/Los_Angeles")  # quota d nhar d Gemini kat-t3awed f nos lil b w9t California
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/129.0 Safari/537.36")
 
@@ -895,6 +896,31 @@ RESPONSE_SCHEMA = {
 
 _last_gemini_call = 0.0
 _cooldown: dict[str, float] = {}  # model -> w9t fach yrja3 (ila quota dyalo salat)
+_gstats: dict | None = None  # state["gemini"]: {nhar d quota: {"models": {model: {ok, 429, err}}, judge, ktaba, tsawer}}
+
+
+def quota_day() -> str:
+    return datetime.now(QUOTA_TZ).strftime("%Y-%m-%d")
+
+
+def quota_reset_in() -> float:
+    """Ch7al d tawani b9at l nos lil d California (fach quota d nhar kat-t3awed) + 1 d9i9a."""
+    now = datetime.now(QUOTA_TZ)
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return (midnight.timestamp() + 86400) - now.timestamp() + 60
+
+
+def gcount(model: str, key: str, purpose: str = "") -> None:
+    """Compteur d calls Gemini (kayban f rapport d 22:00)."""
+    if _gstats is None:
+        return
+    day = _gstats.setdefault(quota_day(), {"models": {}})
+    m = day["models"].setdefault(model, {"ok": 0, "429": 0, "err": 0})
+    m[key] = m.get(key, 0) + 1
+    if purpose:
+        day[purpose] = day.get(purpose, 0) + 1
+    for old in sorted(_gstats)[:-7]:
+        del _gstats[old]
 
 
 class GeminiError(Exception):
@@ -948,6 +974,7 @@ def gemini_json(system: str, user: str, schema: dict, temperature: float,
         },
     }
     errors = []
+    purpose = ("judge" if schema is JUDGE_BATCH_SCHEMA else "tsawer" if schema is PICK_SCHEMA else "ktaba")
     order = [m for m in _models if _cooldown.get(m, 0) <= time.time()]
     if not order:
         raise GeminiError("quota sala f kolchi models (kan3awdo mn b3d)")
@@ -960,12 +987,22 @@ def gemini_json(system: str, user: str, schema: dict, temperature: float,
         try:
             r = http.post(url, json=body, headers={"x-goog-api-key": GEMINI_KEY}, timeout=90)
         except requests.RequestException as e:
+            gcount(model, "err")
             errors.append(f"{model}: {e.__class__.__name__}")
             continue
         if r.status_code == 404:
             _models.remove(model)  # model ma b9ach; ila tkhwat l list, kan3awdo discovery
-        if r.status_code == 429:  # quota d d9i9a: 1 min; quota d nhar: n7bsoh sa3a
-            _cooldown[model] = time.time() + (3600 if "PerDay" in r.text else 60)
+        if r.status_code == 429:  # quota d d9i9a: 1 min; quota d nhar: 7tta tt3awed (nos lil California)
+            gcount(model, "429")
+            if "PerDay" in r.text:
+                _cooldown[model] = time.time() + quota_reset_in()
+                ok_today = ((_gstats or {}).get(quota_day(), {}).get("models", {}).get(model, {}).get("ok", 0))
+                log(f"[quota d nhar sala] {model} ({ok_today} call nej7at lyoum), kayrja3 f "
+                    f"{datetime.fromtimestamp(_cooldown[model], TZ):%H:%M}")
+            else:
+                _cooldown[model] = time.time() + 60
+        elif r.status_code != 200:
+            gcount(model, "err")
         if r.status_code != 200:
             errors.append(f"{model}: HTTP {r.status_code} {r.text[:200]}")
             continue
@@ -974,6 +1011,7 @@ def gemini_json(system: str, user: str, schema: dict, temperature: float,
             raw = "".join(p.get("text", "") for p in parts if not p.get("thought"))
             out = json.loads(raw)
             if all(k in out for k in schema["required"]):
+                gcount(model, "ok", purpose)
                 return out
             errors.append(f"{model}: jawab naqes")
         except (KeyError, IndexError, ValueError) as e:
@@ -1076,7 +1114,7 @@ def overlap(a: set[str], b: set[str]) -> tuple[float, int]:
     return n / min(len(a), len(b)), n
 
 
-JUDGE_PROMPT = """أنت رئيس تحرير موقع إخباري مغربي عام يستهدف جمهوراً واسعاً على الويب وإنستغرام، ولا ينشر إلا 20 إلى 30 خبراً في اليوم.
+JUDGE_PROMPT = """أنت رئيس تحرير موقع إخباري مغربي عام يستهدف جمهوراً واسعاً على الويب وإنستغرام، وينشر حوالي 200 خبر في اليوم.
 
 1) importance: قيّم أهمية الخبر الجديد من 1 إلى 10 للقارئ المغربي:
 - 9-10: حدث وطني كبير أو عاجل: قرار ملكي أو حكومي مؤثر، كارثة أو حادث خطير، قضية رأي عام، المنتخب الوطني في حدث كبير، قرار يمس جيوب المواطنين (أسعار، ضرائب، أجور، دعم).
@@ -1093,7 +1131,7 @@ JUDGE_PROMPT = """أنت رئيس تحرير موقع إخباري مغربي ع
 - 7: أخبار الأندية المغربية الكبرى (تعاقدات، مدربون، عقوبات)؛ أخبار ريال مدريد وبرشلونة التي تتداولها الصحف الكبرى مثل ماركا (مفاوضات انتقال جدية، إصابات، تصريحات مهمة، تشكيلة)؛ أداء لافت للاعبين المغاربة في أوروبا.
 - 4-6: إشاعات انتقال ضعيفة، تصريحات عادية، بطولات صغرى، آراء وتحليلات، ملخصات بلا جديد، ودوريات أخرى.
 
-كن صارماً: يصدر يومياً أكثر من 300 خبر، ولا يستحق 7 فما فوق إلا حوالي 10% منها. التصريحات والمواقف المتتالية حول نفس الموضوع (أحزاب، برلمانيون، فاعلون) تأخذ 5-6 إلا إذا تضمنت قراراً رسمياً حاسماً. عند الشك اختر الدرجة الأقل.
+تصلك يومياً حوالي 700 خبر، والموقع ينشر حوالي 200 منها (حوالي 30%): أعط 7 فما فوق لكل خبر يهم القارئ المغربي أو العربي ويصلح للنشر على الموقع أو إنستغرام، واحتفظ بأقل من 7 للأخبار الروتينية والضعيفة وغير المهمة. التصريحات والمواقف المتتالية حول نفس الموضوع (أحزاب، برلمانيون، فاعلون) تأخذ 5-6 إلا إذا تضمنت قراراً رسمياً حاسماً.
 
 2) international: true إذا كان الخبر دولياً لا علاقة مباشرة له بالمغرب، وfalse إذا كان يخص المغرب أو المغاربة.
 
@@ -1569,13 +1607,20 @@ def maybe_report(state: dict, sources: list[dict]) -> None:
     ranking = sorted(totals.items(), key=lambda kv: (kv[1]["first"], -kv[1]["dup"]), reverse=True)
     lines = [f"{i}. {esc(name)}: <b>{c['first']}</b> lowl · {c['dup']} mkerrer"
              for i, (name, c) in enumerate(ranking, 1)]
+    g = state.get("gemini", {}).get(quota_day(), {})
+    gem = ""
+    if g:
+        per_model = " · ".join(f"{esc(m.removeprefix('gemini-'))}: {c.get('ok', 0)} ✓ / {c.get('429', 0)} quota / "
+                               f"{c.get('err', 0)} KO" for m, c in g.get("models", {}).items())
+        gem = (f"Gemini lyoum (nhar d quota): judge <b>{g.get('judge', 0)}</b> · ktaba <b>{g.get('ktaba', 0)}</b>"
+               f" · tsawer <b>{g.get('tsawer', 0)}</b>\n{per_model}\n")
     used = state.get("serper", 0)
     serper = (f"Serper (Google tsawer): <b>{used}</b> recherche · b9aw ~<b>{max(0, SERPER_CREDITS - used)}</b> credit\n"
               if SERPER_KEY else "")
     tg_send(f"📊 <b>Rapport ({len(days)} iyam)</b>\n"
             f"Akhbar tsiftu lyoum: <b>{state.get('sent', {}).get(today, 0)}</b> (score ≥ {MIN_SCORE})"
             f" · mn lwel: <b>{state.get('total', 0)}</b>\n"
-            + serper
+            + gem + serper
             + "lowl = l source li jab l khabar 9bel l khrin · mkerrer = khabar kan wsel men source okhra\n\n"
             + "\n".join(lines))
 
@@ -1774,6 +1819,8 @@ def main() -> int:
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     sources = load_sources()
     state = load_state()
+    global _gstats
+    _gstats = state.setdefault("gemini", {})
     deadline = time.time() + RUN_MINUTES * 60
     try:
         while True:
