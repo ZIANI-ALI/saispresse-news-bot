@@ -3,7 +3,7 @@ m3a 2 versions mktobin b Gemini: (1) nafs l khabar b siyagha jdida, (2) version 
 
 Env:
   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, GEMINI_API_KEY   (darouriyin, ghir f DRY_RUN)
-  GEMINI_MODELS        khawi = kaykhtar automatiquement a7dath flash + flash-lite (ila l lowel 429 kaydouz l tani)
+  GEMINI_MODELS        khawi = kaykhtar automatiquement ga3 models flash (bla lite; ila l lowel 429 kaydouz l tani)
   RUN_MINUTES          0 = dowra we7da; >0 = ybqa ydour had l mudda (mode GitHub Actions)
   POLL_SECONDS         default 60
   MAX_AGE_HOURS        default 3 (khbar 9dam men hadi ma kaytsiftsh)
@@ -901,13 +901,13 @@ class GeminiError(Exception):
     pass
 
 
-_models: list[str] | None = list(GEMINI_MODELS) or None
-_MODEL_RE = re.compile(r"^gemini-(\d+(?:\.\d+)*)-flash(-lite)?$")
+_models: list[str] | None = [m for m in GEMINI_MODELS if "lite" not in m] or None  # lite kayghlet: ma kanst3mlouhch
+_MODEL_RE = re.compile(r"^gemini-(\d+(?:\.\d+)*)-flash$")
 
 
 def discover_models() -> list[str]:
-    """Kayjib ga3 l models flash w flash-lite li mt-wafrin l had l key (kol wa7d 3ndo quota dyalo):
-    a7dath flash, a7dath flash-lite, men ba3d l b9iya (flash 9bel lite)."""
+    """Kayjib ga3 l models flash li mt-wafrin l had l key (kol wa7d 3ndo quota dyalo), a7dath 9bel.
+    flash-lite ma kandkhlouhch: kayghlet (f l ktaba w f judge)."""
     try:
         r = http.get("https://generativelanguage.googleapis.com/v1beta/models",
                      params={"pageSize": 1000}, headers={"x-goog-api-key": GEMINI_KEY}, timeout=30)
@@ -918,23 +918,20 @@ def discover_models() -> list[str]:
             match = _MODEL_RE.match(name)
             if match and "generateContent" in m.get("supportedGenerationMethods", []):
                 version = tuple(int(x) for x in match.group(1).split("."))
-                found.append((version, bool(match.group(2)), name))
-        found.sort(key=lambda f: (tuple(-v for v in f[0]), f[1]))
-        flash = [n for _, lite, n in found if not lite]
-        lite = [n for _, is_lite, n in found if is_lite]
-        picked = flash[:1] + lite[:1] + flash[1:] + lite[1:]
+                found.append((version, name))
+        found.sort(key=lambda f: tuple(-v for v in f[0]))
+        picked = [n for _, n in found]
         if picked:
             log(f"Gemini models: {', '.join(picked)}")
             return picked
     except (requests.RequestException, ValueError) as e:
         log(f"[gemini models KO] {e.__class__.__name__}")
-    return ["gemini-flash-latest", "gemini-flash-lite-latest"]
+    return ["gemini-flash-latest"]
 
 
-def gemini_json(system: str, user: str, schema: dict, temperature: float, prefer_lite: bool = False,
-                images: list[bytes] | None = None, writer: bool = False) -> dict:
-    """Appel Gemini b jawab JSON. Kayjereb l models b tartib; 404 kaymse7 l model.
-    writer: ktaba (rewrite, titre): ghir models flash (bla lite), bach l3arbiya tkoun n9iya."""
+def gemini_json(system: str, user: str, schema: dict, temperature: float,
+                images: list[bytes] | None = None) -> dict:
+    """Appel Gemini b jawab JSON. Kayjereb l models b tartib; 404 kaymse7 l model."""
     global _last_gemini_call, _models
     if not _models:
         _models = discover_models()
@@ -951,13 +948,9 @@ def gemini_json(system: str, user: str, schema: dict, temperature: float, prefer
         },
     }
     errors = []
-    order = sorted(_models, key=lambda m: "lite" not in m) if prefer_lite else list(_models)
-    if writer:
-        order = [m for m in order if "lite" not in m]
-    order = [m for m in order if _cooldown.get(m, 0) <= time.time()]
+    order = [m for m in _models if _cooldown.get(m, 0) <= time.time()]
     if not order:
-        raise GeminiError("quota sala f kolchi models" + (" d ktaba (flash)" if writer else "")
-                          + " (kan3awdo mn b3d)")
+        raise GeminiError("quota sala f kolchi models (kan3awdo mn b3d)")
     for model in order:
         wait = _last_gemini_call + GEMINI_MIN_INTERVAL - time.time()
         if wait > 0:
@@ -993,8 +986,8 @@ def gemini_exhausted() -> bool:
 
 
 def writer_ready() -> bool:
-    """Kayn chi model flash (machi lite) quota dyalo mazal (wla mazal ma 3rfnach l models)."""
-    return not _models or any("lite" not in m and _cooldown.get(m, 0) <= time.time() for m in _models)
+    """Kayn chi model quota dyalo mazal (wla mazal ma 3rfnach l models)."""
+    return not gemini_exhausted()
 
 
 PICS_PROMPT = """
@@ -1046,7 +1039,7 @@ def rewrite(item: dict, text: str, pics: dict | None = None) -> dict:
             f"العنوان الأصلي: {item['title']}\n\n"
             f"نص الخبر:\n<<<\n{text}\n>>>")
     system, user, schema, images = with_pics(SYSTEM_PROMPT, user, RESPONSE_SCHEMA, pics)
-    out = gemini_json(system, user, schema, 0.2, images=images, writer=True)
+    out = gemini_json(system, user, schema, 0.2, images=images)
     if not all(str(out.get(k, "")).strip() for k in RESPONSE_SCHEMA["required"]):
         raise GeminiError("jawab khawi")
     return out
@@ -1193,7 +1186,7 @@ def judge_batch(items: list[dict], stories: list[dict]) -> dict[str, dict] | Non
     old = "\n".join(f"{k}. {st['title']}" for k, st in enumerate(listing)) or "(لا توجد)"
     try:
         out = gemini_json(JUDGE_BATCH_PROMPT, f"الأخبار الجديدة:\n{new}\n\nالأخبار السابقة:\n{old}",
-                          JUDGE_BATCH_SCHEMA, 0.0, prefer_lite=True)
+                          JUDGE_BATCH_SCHEMA, 0.0)
     except GeminiError as e:
         if not gemini_exhausted():
             log(f"[judge KO] {str(e)[:300]}")
@@ -1447,7 +1440,7 @@ def title_only(item: dict, img, small, upscaled: bool, alert_id: int | None, urg
     """Khabar bla nass (Google News / site blocki): bla versions, walakin cover mn l 3onwan."""
     system, user, schema, images = with_pics(TITLE_PROMPT, f"العنوان الأصلي: {item['title']}", TITLE_SCHEMA, pics)
     try:
-        out = gemini_json(system, user, schema, 0.4, images=images, writer=True)
+        out = gemini_json(system, user, schema, 0.4, images=images)
     except GeminiError as e:
         log(f"[gemini KO] {item['link']}: {e}")
         tg_send("ℹ️ النص ما توصلناش بيه (غير العنوان). شوف الرابط.", reply_to=alert_id)

@@ -45,9 +45,9 @@ Variables ikhtiyariyin: `MIN_SCORE`, `HIGH_SCORE`, `GEMINI_MODELS`, `POLL_SECOND
 
 ## Limites Gemini free
 
-Free tier 3ndo limite d requests f l youm, w kol model 3ndo quota dyalo. Bot kayst3mel ga3 l models `flash` w `flash-lite` li f compte (a7dath flash, a7dath flash-lite, men ba3d l b9iya); model li rja3 429 kayt7bes (1 min ila quota d d9i9a, 1 sa3a ila quota d nhar) w kaydouz l li mor.
+Free tier 3ndo limite d requests f l youm, w kol model 3ndo quota dyalo. Bot kayst3mel ga3 l models `flash` li f compte (a7dath 9bel), bla `flash-lite` (kayghlet); model li rja3 429 kayt7bes (1 min ila quota d d9i9a, 1 sa3a ila quota d nhar) w kaydouz l li mor.
 
-**Ktaba ghir b flash:** rewrite w titre d cover kaytktbo ghir b models `flash` (machi `flash-lite`), bach l3arbiya tkoun n9iya. Ila quota d flash salat, l khabar kaydkhol queue d retry (7tta 12 sa3a) w ma kaytktebch b model d3if. `flash-lite` kayb9a ghir l judge (ma kaykatebch).
+**Ghir flash:** judge, ktaba w ikhtiyar d tsawer kolhom b models `flash`. Ila quota salat, l khabar kaydkhol queue d retry (7tta 12 sa3a) w ma kaytktebch b model d3if.
 
 **Call wa7d l kol post:** judge (b l groupe) kay3ti m3a score: category, recherches d tswira, w smiya d chakhsiya. Bot kayjme3 tsawer (chakhsiya mn Openverse + ta3biriya) 9bel l ktaba, w Gemini kaykteb l versions w kaykhtar tswira f nafs l call (`person_choice`, `image_choice`). Khabar bla hints (9dim f queue): ikhtiyar d tswira f call bo7do b7al 9bel.
 
