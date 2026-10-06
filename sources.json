@@ -1,5 +1,5 @@
 {
-  "_note": "10 sources asasiyin (sri3in + kaygheTTiw kolchi). Lbaqi m7bous (enabled=false): rja3 l rapport dyal 22:00 bach tqarer. type=gnews: Google News (l sites li kaybloquiw RSS). credit: ila kayn, kayt-zad f l akhir dyal النسخة 1 w Instagram. intl=true: source dawliya, kaytsifet ghir l khabar li 3ndo score >= HIGH_SCORE. Kora (football=true f judge): kattsifet mn 7+ 7tta ila kant dawliya, w 3ndha 'wa7ed f sa3a' dyalha.",
+  "_note": "10 sources asasiyin (sri3in + kaygheTTiw kolchi). Lbaqi m7bous (enabled=false): rja3 l rapport dyal 22:00 bach tqarer. type=gnews: Google News (l sites li kaybloquiw RSS). type=wp: API d WordPress (/wp-json), ila RSS mbloqui w API la (Goud). credit: ila kayn, kayt-zad f l akhir dyal النسخة 1 w Instagram. intl=true: source dawliya, kaytsifet ghir l khabar li 3ndo score >= HIGH_SCORE. Kora (football=true f judge): kattsifet mn 7+ 7tta ila kant dawliya, w 3ndha 'wa7ed f sa3a' dyalha.",
   "sources": [
     {
       "name": "وكالة المغرب العربي للأنباء (MAP عربي)",
@@ -48,8 +48,8 @@
     },
     {
       "name": "كود",
-      "url": "https://www.goud.ma/feed/",
-      "type": "rss",
+      "url": "https://www.goud.ma",
+      "type": "wp",
       "enabled": true
     },
     {

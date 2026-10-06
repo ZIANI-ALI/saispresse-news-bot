@@ -120,6 +120,8 @@ def load_sources() -> list[dict]:
 
 
 def feed_url(src: dict) -> str:
+    if src["type"] == "wp":  # API d WordPress: kadouz fin RSS mbloqui (Goud), w kat3ti nass kamel + tswira
+        return src["url"].rstrip("/") + "/wp-json/wp/v2/posts?per_page=20&_embed=wp:featuredmedia,wp:term"
     if src["type"] == "gnews":
         q = quote_plus(f"site:{src['url']} when:1h")
         return f"https://news.google.com/rss/search?q={q}&hl=ar&gl=MA&ceid=MA:ar"
@@ -182,14 +184,16 @@ def link_date(link: str) -> float | None:
 
 def fetch_feed(src: dict) -> list[dict]:
     try:
-        r = fetch(feed_url(src)) if src["type"] == "rss" else http.get(feed_url(src), timeout=20)
+        r = fetch(feed_url(src)) if src["type"] in ("rss", "wp") else http.get(feed_url(src), timeout=20)
         r.raise_for_status()
+        if src["type"] == "wp":
+            return wp_items(src, r.json())  # JSON khayeb -> JSONDecodeError (RequestException)
     except requests.RequestException as e:
         if src["name"] not in _feed_ko_logged:
             _feed_ko_logged.add(src["name"])
             log(f"[feed KO] {src['name']}: {e.__class__.__name__} {getattr(e.response, 'status_code', '')}"
-                + (" -> Google News" if src["type"] == "rss" else ""))
-        if src["type"] == "rss":
+                + (" -> Google News" if src["type"] in ("rss", "wp") else ""))
+        if src["type"] in ("rss", "wp"):
             # Bzaf d sites kaybloquiw IPs dyal GitHub: ndouzo l Google News dyal nafs domain.
             domain = urlparse(src["url"]).netloc.removeprefix("www.")
             return fetch_feed({**src, "type": "gnews", "url": domain})
@@ -245,6 +249,34 @@ def fetch_feed(src: dict) -> list[dict]:
     return items
 
 
+def wp_items(src: dict, posts: list[dict]) -> list[dict]:
+    """Posts mn /wp-json/wp/v2/posts (m3a _embed): nafs chkel d items d RSS, b nass kamel w tswira."""
+    items = []
+    for p in posts:
+        link = p.get("link", "")
+        if not link or not p.get("date_gmt"):
+            continue
+        emb = p.get("_embedded") or {}
+        media = (emb.get("wp:featuredmedia") or [{}])[0]
+        terms = [t.get("name") or "" for group in emb.get("wp:term") or [] for t in group]
+        items.append({
+            "id": f"{src['name']}|{p.get('id') or link}",
+            "source": src["name"],
+            "credit": src.get("credit", ""),
+            "gnews": False,
+            "wp": True,
+            "intl": src.get("intl", False),
+            "title": html.unescape(re.sub(r"<[^>]+>", "", (p.get("title") or {}).get("rendered", ""))).strip(),
+            "link": link,
+            "ts": calendar.timegm(datetime.fromisoformat(p["date_gmt"]).timetuple()),
+            "content_html": (p.get("content") or {}).get("rendered", ""),
+            "summary_html": (p.get("excerpt") or {}).get("rendered", ""),
+            "image": media.get("source_url", "") if isinstance(media, dict) else "",
+            "opinion": bool(_OPINION_RE.search(" ".join(terms + [urlparse(link).path]))),
+        })
+    return items
+
+
 def fetch_all(sources: list[dict]) -> list[dict]:
     with ThreadPoolExecutor(max_workers=12) as pool:
         return [it for items in pool.map(fetch_feed, sources) for it in items]
@@ -259,6 +291,7 @@ _JUNK_TAIL = re.compile(r"The post .{0,300} appeared first on .*$", re.S)
 def html_to_text(raw: str) -> str:
     if not raw:
         return ""
+    raw = re.sub(r"(?is)<(script|style)\b.*?</\1\s*>", " ", raw)
     raw = re.sub(r"(?i)<\s*(br|/p|/div|/h\d|/li)\s*/?>", "\n", raw)
     raw = re.sub(r"<[^>]+>", " ", raw)
     text = html.unescape(raw)
@@ -275,7 +308,7 @@ def article_data(item: dict) -> tuple[str, list[str]]:
     """Kayrja3 (nass l khabar, liens d tsawer mrrtbin: og:image 9bel tswira d RSS)."""
     text = _JUNK_TAIL.sub("", html_to_text(item["content_html"])).strip()
     images = []
-    if not item["gnews"] and item["link"]:
+    if not item["gnews"] and not item.get("wp") and item["link"]:
         try:
             r = fetch(item["link"])
             r.raise_for_status()
