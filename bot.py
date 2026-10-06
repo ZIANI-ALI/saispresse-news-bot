@@ -3,7 +3,7 @@ m3a 2 versions mktobin b Gemini: (1) nafs l khabar b siyagha jdida, (2) version 
 
 Env:
   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, GEMINI_API_KEY   (darouriyin, ghir f DRY_RUN)
-  GEMINI_MODELS        khawi = kaykhtar automatiquement ga3 models flash (bla lite; ila l lowel 429 kaydouz l tani)
+  GEMINI_MODELS        khawi = kaykhtar automatiquement ga3 models flash (ktaba) w flash-lite (judge bark); ila l lowel 429 kaydouz l tani
   RUN_MINUTES          0 = dowra we7da; >0 = ybqa ydour had l mudda (mode GitHub Actions)
   POLL_SECONDS         default 60
   MAX_AGE_HOURS        default 3 (khbar 9dam men hadi ma kaytsiftsh)
@@ -927,13 +927,17 @@ class GeminiError(Exception):
     pass
 
 
-_models: list[str] | None = [m for m in GEMINI_MODELS if "lite" not in m] or None  # lite kayghlet: ma kanst3mlouhch
-_MODEL_RE = re.compile(r"^gemini-(\d+(?:\.\d+)*)-flash$")
+# Ktaba (w ikhtiyar d tsawer): ghir flash (lite kayghlet f l3arbiya).
+# Judge: lite 9bel (quota dyalo bo7do, ma kaykteb walo kaytnchar), w ila sala, flash.
+_models: list[str] | None = [m for m in GEMINI_MODELS if "lite" not in m] or None
+_lite_models: list[str] = [m for m in GEMINI_MODELS if "lite" in m]
+_MODEL_RE = re.compile(r"^gemini-(\d+(?:\.\d+)*)-flash(-lite)?$")
 
 
 def discover_models() -> list[str]:
-    """Kayjib ga3 l models flash li mt-wafrin l had l key (kol wa7d 3ndo quota dyalo), a7dath 9bel.
-    flash-lite ma kandkhlouhch: kayghlet (f l ktaba w f judge)."""
+    """Kayjib ga3 l models flash w flash-lite li mt-wafrin l had l key (kol wa7d 3ndo quota dyalo), a7dath 9bel.
+    Kayrja3 flash; lite kayt7et f _lite_models (ghir l judge)."""
+    global _lite_models
     try:
         r = http.get("https://generativelanguage.googleapis.com/v1beta/models",
                      params={"pageSize": 1000}, headers={"x-goog-api-key": GEMINI_KEY}, timeout=30)
@@ -944,11 +948,13 @@ def discover_models() -> list[str]:
             match = _MODEL_RE.match(name)
             if match and "generateContent" in m.get("supportedGenerationMethods", []):
                 version = tuple(int(x) for x in match.group(1).split("."))
-                found.append((version, name))
+                found.append((version, bool(match.group(2)), name))
         found.sort(key=lambda f: tuple(-v for v in f[0]))
-        picked = [n for _, n in found]
+        picked = [n for _, lite, n in found if not lite]
+        if not _lite_models:
+            _lite_models = [n for _, lite, n in found if lite]
         if picked:
-            log(f"Gemini models: {', '.join(picked)}")
+            log(f"Gemini models: {', '.join(picked)} | judge (lite): {', '.join(_lite_models) or '-'}")
             return picked
     except (requests.RequestException, ValueError) as e:
         log(f"[gemini models KO] {e.__class__.__name__}")
@@ -975,7 +981,8 @@ def gemini_json(system: str, user: str, schema: dict, temperature: float,
     }
     errors = []
     purpose = ("judge" if schema is JUDGE_BATCH_SCHEMA else "tsawer" if schema is PICK_SCHEMA else "ktaba")
-    order = [m for m in _models if _cooldown.get(m, 0) <= time.time()]
+    pool = (_lite_models + _models) if purpose == "judge" else _models
+    order = [m for m in pool if _cooldown.get(m, 0) <= time.time()]
     if not order:
         raise GeminiError("quota sala f kolchi models (kan3awdo mn b3d)")
     for model in order:
@@ -990,8 +997,10 @@ def gemini_json(system: str, user: str, schema: dict, temperature: float,
             gcount(model, "err")
             errors.append(f"{model}: {e.__class__.__name__}")
             continue
-        if r.status_code == 404:
-            _models.remove(model)  # model ma b9ach; ila tkhwat l list, kan3awdo discovery
+        if r.status_code == 404:  # model ma b9ach; ila tkhwat l list d flash, kan3awdo discovery
+            for lst in (_models, _lite_models):
+                if model in lst:
+                    lst.remove(model)
         if r.status_code == 429:  # quota d d9i9a: 1 min; quota d nhar: 7tta tt3awed (nos lil California)
             gcount(model, "429")
             if "PerDay" in r.text:
@@ -1021,6 +1030,11 @@ def gemini_json(system: str, user: str, schema: dict, temperature: float,
 
 def gemini_exhausted() -> bool:
     return bool(_models) and all(_cooldown.get(m, 0) > time.time() for m in _models)
+
+
+def judge_exhausted() -> bool:
+    """Judge: lite + flash kamlin salaw."""
+    return gemini_exhausted() and all(_cooldown.get(m, 0) > time.time() for m in _lite_models)
 
 
 def writer_ready() -> bool:
@@ -1226,7 +1240,7 @@ def judge_batch(items: list[dict], stories: list[dict]) -> dict[str, dict] | Non
         out = gemini_json(JUDGE_BATCH_PROMPT, f"الأخبار الجديدة:\n{new}\n\nالأخبار السابقة:\n{old}",
                           JUDGE_BATCH_SCHEMA, 0.0)
     except GeminiError as e:
-        if not gemini_exhausted():
+        if not judge_exhausted():
             log(f"[judge KO] {str(e)[:300]}")
         return verdicts or None
     for r in out.get("items") or []:
@@ -1771,7 +1785,7 @@ def poll_once(state: dict, sources: list[dict]) -> None:
     today = datetime.now(TZ).strftime("%Y-%m-%d")
     due = bool(queue) and (now - min(q["queued"] for q in queue) >= JUDGE_WAIT or len(queue) >= JUDGE_BATCH)
     while due and queue:
-        if not NO_AI and gemini_exhausted():
+        if not NO_AI and judge_exhausted():
             break
         batch = queue[:JUDGE_BATCH]
         verdicts = judge_batch(batch, state["stories"])
