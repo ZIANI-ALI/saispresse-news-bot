@@ -995,7 +995,7 @@ def discover_models() -> list[str]:
 
 
 def gemini_json(system: str, user: str, schema: dict, temperature: float,
-                images: list[bytes] | None = None) -> dict:
+                images: list[bytes] | None = None, strong: bool = True) -> dict:
     """Appel Gemini b jawab JSON. Kayjereb l models b tartib; 404 kaymse7 l model."""
     global _last_gemini_call, _models
     if not _models:
@@ -1014,7 +1014,12 @@ def gemini_json(system: str, user: str, schema: dict, temperature: float,
     }
     errors = []
     purpose = ("judge" if schema is JUDGE_BATCH_SCHEMA else "tsawer" if schema is PICK_SCHEMA else "ktaba")
-    pool = (_lite_models + _models) if purpose == "judge" else (_models + _lite_models)
+    if purpose == "judge":
+        pool = _lite_models + _models
+    elif strong or not _lite_models:
+        pool = _models + _lite_models
+    else:  # khabar 3adi: lite bark, quota d flash mkhbya l akhbar lmohimmin (strong_news)
+        pool = _lite_models
     order = [m for m in pool if _cooldown.get(m, 0) <= time.time()]
     if not order:
         raise GeminiError("quota sala f kolchi models (kan3awdo mn b3d)")
@@ -1120,13 +1125,23 @@ def picked(out: dict, pics: dict | None) -> tuple[dict | None, dict | None]:
     return (person[p] if 0 <= p < len(person) else None), (free[f] if 0 <= f < len(free) else None)
 
 
+# Flash (quota sghira) ghir l akhbar lmohimmin: score 9-10 / 3ajil, wla 3ndhom 3ala9a b l malik, l polis, l wizara.
+_STRONG_RE = re.compile(r"الملك\b|جلالة|العاهل|ولي العهد|الأمير مولاي|الأميرة للا|الديوان الملكي|القصر الملكي|الملكي\b"
+                        r"|الشرطة|شرطي|الأمن الوطني|ولاية أمن|المنطقة الإقليمية للأمن|المنطقة الأمنية|مصالح الأمن"
+                        r"|عناصر الأمن|حموشي|DGSN|DGST|وزار[ةت]|وزير")
+
+
+def strong_news(item: dict, score: int, urgent: bool, text: str) -> bool:
+    return urgent or score > HIGH_SCORE or bool(_STRONG_RE.search(f"{item['title']}\n{text[:400]}"))
+
+
 def rewrite(item: dict, text: str, pics: dict | None = None) -> dict:
     """Call wa7d: versions + titre Instagram + (ila kaynin pics) ikhtiyar d tswira."""
     user = (f"المصدر: {item['source']}\n"
             f"العنوان الأصلي: {item['title']}\n\n"
             f"نص الخبر:\n<<<\n{text}\n>>>")
     system, user, schema, images = with_pics(SYSTEM_PROMPT, user, RESPONSE_SCHEMA, pics)
-    out = gemini_json(system, user, schema, 0.2, images=images)
+    out = gemini_json(system, user, schema, 0.2, images=images, strong=item.get("strong", True))
     if not all(str(out.get(k, "")).strip() for k in RESPONSE_SCHEMA["required"]):
         raise GeminiError("jawab khawi")
     return out
@@ -1404,6 +1419,7 @@ def process(item: dict, number: int, score: int, urgent: bool = False,
               + f"{'🚨 <b>عاجل</b> · ' if urgent else ''}🔴 <b>خبر {number}</b> · ⭐ {score}/10 · {esc(item['source'])} · {when}\n\n"
               f"<b>{esc(item['title'])}</b>\n<a href=\"{html.escape(item['link'])}\">فتح الخبر</a>")
     text, image_urls = data or (("", []) if NO_AI else article_data(item))
+    item["strong"] = strong_news(item, score, urgent, text)
     if followup and not NO_AI and len(text) >= MIN_TEXT_FOR_AI:
         # cover w tsawer tsiftu deja m3a l 3onwan: daba ghir النسخة 1/2 (bla Gemini d tsawer, bla covers 3awtani)
         alert_id = tg_send(header, preview=True)
@@ -1450,7 +1466,7 @@ def process(item: dict, number: int, score: int, urgent: bool = False,
             tg_send(f"⚠️ Gemini ma jawebsh: {esc(str(e)[:500])}", reply_to=alert_id)
             return
         del retry[:-199]  # max 200 f queue
-        retry.append({"item": {k: item.get(k) for k in ("title", "link", "source", "credit", "ts", "hints")},
+        retry.append({"item": {k: item.get(k) for k in ("title", "link", "source", "credit", "ts", "hints", "strong")},
                       "text": text, "images": image_urls, "alert_id": alert_id, "urgent": urgent,
                       "since": time.time()})
         tg_send("⏳ Gemini ma jawebsh daba (quota). النسخة 1 w 2 w covers ghaywslo mn b3d, reply 3la had l khabar.",
@@ -1527,7 +1543,7 @@ def title_only(item: dict, img, small, upscaled: bool, alert_id: int | None, urg
     """Khabar bla nass (Google News / site blocki): bla versions, walakin cover mn l 3onwan."""
     system, user, schema, images = with_pics(TITLE_PROMPT, f"العنوان الأصلي: {item['title']}", TITLE_SCHEMA, pics)
     try:
-        out = gemini_json(system, user, schema, 0.4, images=images)
+        out = gemini_json(system, user, schema, 0.4, images=images, strong=item.get("strong", True))
     except GeminiError as e:
         log(f"[gemini KO] {item['link']}: {e}")
         tg_send("ℹ️ النص ما توصلناش بيه (غير العنوان). شوف الرابط.", reply_to=alert_id)
