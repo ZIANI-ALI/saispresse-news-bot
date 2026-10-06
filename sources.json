@@ -1,5 +1,5 @@
 {
-  "_note": "10 sources asasiyin (sri3in + kaygheTTiw kolchi). Lbaqi m7bous (enabled=false): rja3 l rapport dyal 22:00 bach tqarer. type=gnews: Google News (l sites li kaybloquiw RSS). type=wp: API d WordPress (/wp-json), ila RSS mbloqui w API la (Goud). credit: ila kayn, kayt-zad f l akhir dyal النسخة 1 w Instagram. intl=true: source dawliya, kaytsifet ghir l khabar li 3ndo score >= HIGH_SCORE. Kora (football=true f judge): kattsifet mn 7+ 7tta ila kant dawliya, w 3ndha 'wa7ed f sa3a' dyalha.",
+  "_note": "10 sources asasiyin (sri3in + kaygheTTiw kolchi). Lbaqi m7bous (enabled=false): rja3 l rapport dyal 22:00 bach tqarer. type=gnews: Google News (l sites li kaybloquiw RSS). type=wp: API d WordPress (/wp-json), ila RSS mbloqui w API la (Goud). ts_shift_hours: kayzid sa3at l w9t d feed ila kayktb UTC b offset ghalet (Jazeera: +0300 3la w9t UTC). credit: ila kayn, kayt-zad f l akhir dyal النسخة 1 w Instagram. intl=true: source dawliya (kaytsifet b7al lbaqi: score >= MIN_SCORE). Kora (football=true f judge): kattsifet mn 7+ 7tta ila kant dawliya, w 3ndha 'wa7ed f sa3a' dyalha.",
   "sources": [
     {
       "name": "وكالة المغرب العربي للأنباء (MAP عربي)",
@@ -194,6 +194,7 @@
       "name": "الجزيرة نت",
       "url": "https://www.aljazeera.net/aljazeerarss/a7c186be-1baa-4bd4-9d80-a84db769f779/73d0e1b4-532f-45ef-b135-bfdff8b8cab9",
       "type": "rss",
+      "ts_shift_hours": 3,
       "enabled": true,
       "intl": true
     },

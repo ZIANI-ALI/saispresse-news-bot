@@ -208,7 +208,7 @@ def fetch_feed(src: dict) -> list[dict]:
         ts_struct = e.get("published_parsed") or e.get("updated_parsed")
         if not ts_struct:  # bla date = ma n3rfouch wach jdid: ma nsiftouhch (9bel kan7sbouh "daba")
             continue
-        ts = calendar.timegm(ts_struct)
+        ts = calendar.timegm(ts_struct) + src.get("ts_shift_hours", 0) * 3600  # feed kayktb UTC b offset ghalet (Jazeera)
         url_ts = link_date(link)
         if url_ts and url_ts < ts:  # date f l lien (/2026/07/30/) 9dam mn date d feed: l khabar 9dim w feed 3awdo
             ts = url_ts
