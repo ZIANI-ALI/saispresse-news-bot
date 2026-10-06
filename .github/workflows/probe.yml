@@ -1,0 +1,44 @@
+# Mo2a9at: test wach IPs d GitHub kaydouzo l wp-json d sites mbloquyin. Kaytms7 mn ba3d.
+name: Probe sources
+on:
+  push:
+    branches: [claude/great-dirac-qef9k7]
+    paths: [.github/workflows/probe.yml]
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: pip install -q requests
+      - shell: python
+        run: |
+          import requests
+          UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/129.0 Safari/537.36")
+          s = requests.Session()
+          s.headers.update({"User-Agent": UA, "Accept-Language": "ar,fr;q=0.8,en;q=0.5"})
+          q = "per_page=3&_fields=id,date_gmt,link,title"
+          urls = [
+              "https://www.kech24.com/feed",
+              f"https://www.kech24.com/wp-json/wp/v2/posts?{q}",
+              f"https://kech24.com/wp-json/wp/v2/posts?{q}",
+              "https://barlamane.com/feed/",
+              f"https://barlamane.com/wp-json/wp/v2/posts?{q}",
+              "https://www.goud.ma/feed/",
+              f"https://www.goud.ma/wp-json/wp/v2/posts?{q}",
+              f"https://goud.ma/wp-json/wp/v2/posts?{q}",
+              "https://www.mapexpress.ma/ar/feed/",
+              f"https://www.mapexpress.ma/ar/wp-json/wp/v2/posts?{q}",
+              f"https://www.mapexpress.ma/wp-json/wp/v2/posts?{q}",
+              "https://feeds.feedburner.com/mapexpress",
+              "https://www.hesport.com/feed",
+          ]
+          for u in urls:
+              for name, h in (("requests", {}), ("json", {"Accept": "application/json"})):
+                  if name == "json" and "wp-json" not in u:
+                      continue
+                  try:
+                      r = s.get(u, timeout=20, headers=h)
+                      print(f"{r.status_code} {name:8} {u} -> {r.url != u and r.url or ''} {r.text[:70]!r}")
+                  except Exception as e:
+                      print(f"ERR {name:8} {u}: {e.__class__.__name__} {e}")
