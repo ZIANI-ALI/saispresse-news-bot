@@ -45,7 +45,7 @@ Variables ikhtiyariyin: `MIN_SCORE`, `HIGH_SCORE`, `GEMINI_MODELS`, `POLL_SECOND
 
 ## Limites Gemini free
 
-Free tier 3ndo limite d requests f l youm, w kol model 3ndo quota dyalo. Ktaba (w ikhtiyar d tsawer) kat-khdem ghir b models `flash` li f compte (a7dath 9bel). **Judge** kaykhdem b `flash-lite` 9bel (quota dyalo bo7do: free tier d flash = ~20 call f nhar l kol model), w ila salat lite kaydouz l flash; model li rja3 429 kayt7bes (1 min ila quota d d9i9a; ila quota d nhar, 7tta nos lil d California = 08:00 Maghrib f sif, 09:00 f chta) w kaydouz l li mor. Rapport d 22:00 kayban ch7al d call Gemini (judge / ktaba / tsawer) w ch7al nej7o w ch7al rj3o quota l kol model.
+Free tier 3ndo limite d requests f l youm, w kol model 3ndo quota dyalo. Ktaba (w ikhtiyar d tsawer) kat-khdem b models `flash` li f compte (a7dath 9bel); ila quota d flash salat (free: 20 call f nhar l kol model), katdouz l `flash-lite` (500 f nhar), w l post kayttmerka **⚠️ [lite]** f النسخة 1 w f cover bach traje3 l3arbiya 9bel ma tnchr. **Judge** kaykhdem b `flash-lite` 9bel (quota dyalo bo7do: free tier d flash = ~20 call f nhar l kol model), w ila salat lite kaydouz l flash; model li rja3 429 kayt7bes (1 min ila quota d d9i9a; ila quota d nhar, 7tta nos lil d California = 08:00 Maghrib f sif, 09:00 f chta) w kaydouz l li mor. Rapport d 22:00 kayban ch7al d call Gemini (judge / ktaba / tsawer) w ch7al nej7o w ch7al rj3o quota l kol model.
 
 **Ghir flash:** judge, ktaba w ikhtiyar d tsawer kolhom b models `flash`. Ila quota salat, l khabar kaydkhol queue d retry (7tta 12 sa3a) w ma kaytktebch b model d3if.
 

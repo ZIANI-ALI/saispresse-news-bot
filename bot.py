@@ -3,7 +3,7 @@ m3a 2 versions mktobin b Gemini: (1) nafs l khabar b siyagha jdida, (2) version 
 
 Env:
   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, GEMINI_API_KEY   (darouriyin, ghir f DRY_RUN)
-  GEMINI_MODELS        khawi = kaykhtar automatiquement ga3 models flash (ktaba) w flash-lite (judge bark); ila l lowel 429 kaydouz l tani
+  GEMINI_MODELS        khawi = kaykhtar automatiquement ga3 models flash w flash-lite (ktaba: flash 9bel; judge: lite 9bel); ila l lowel 429 kaydouz l tani
   RUN_MINUTES          0 = dowra we7da; >0 = ybqa ydour had l mudda (mode GitHub Actions)
   POLL_SECONDS         default 60
   MAX_AGE_HOURS        default 3 (khbar 9dam men hadi ma kaytsiftsh)
@@ -927,7 +927,7 @@ class GeminiError(Exception):
     pass
 
 
-# Ktaba (w ikhtiyar d tsawer): ghir flash (lite kayghlet f l3arbiya).
+# Ktaba (w ikhtiyar d tsawer): flash 9bel; ila quota d flash salat, lite (post kayttmerka [lite] bach yt-raja3).
 # Judge: lite 9bel (quota dyalo bo7do, ma kaykteb walo kaytnchar), w ila sala, flash.
 _models: list[str] | None = [m for m in GEMINI_MODELS if "lite" not in m] or None
 _lite_models: list[str] = [m for m in GEMINI_MODELS if "lite" in m]
@@ -936,7 +936,7 @@ _MODEL_RE = re.compile(r"^gemini-(\d+(?:\.\d+)*)-flash(-lite)?$")
 
 def discover_models() -> list[str]:
     """Kayjib ga3 l models flash w flash-lite li mt-wafrin l had l key (kol wa7d 3ndo quota dyalo), a7dath 9bel.
-    Kayrja3 flash; lite kayt7et f _lite_models (ghir l judge)."""
+    Kayrja3 flash; lite kayt7et f _lite_models (judge 9bel, ktaba ghir ila flash sala)."""
     global _lite_models
     try:
         r = http.get("https://generativelanguage.googleapis.com/v1beta/models",
@@ -981,7 +981,7 @@ def gemini_json(system: str, user: str, schema: dict, temperature: float,
     }
     errors = []
     purpose = ("judge" if schema is JUDGE_BATCH_SCHEMA else "tsawer" if schema is PICK_SCHEMA else "ktaba")
-    pool = (_lite_models + _models) if purpose == "judge" else _models
+    pool = (_lite_models + _models) if purpose == "judge" else (_models + _lite_models)
     order = [m for m in pool if _cooldown.get(m, 0) <= time.time()]
     if not order:
         raise GeminiError("quota sala f kolchi models (kan3awdo mn b3d)")
@@ -1021,6 +1021,7 @@ def gemini_json(system: str, user: str, schema: dict, temperature: float,
             out = json.loads(raw)
             if all(k in out for k in schema["required"]):
                 gcount(model, "ok", purpose)
+                out["_model"] = model
                 return out
             errors.append(f"{model}: jawab naqes")
         except (KeyError, IndexError, ValueError) as e:
@@ -1029,12 +1030,13 @@ def gemini_json(system: str, user: str, schema: dict, temperature: float,
 
 
 def gemini_exhausted() -> bool:
-    return bool(_models) and all(_cooldown.get(m, 0) > time.time() for m in _models)
+    """Flash w lite kamlin salaw."""
+    return bool(_models) and all(_cooldown.get(m, 0) > time.time() for m in _models + _lite_models)
 
 
-def judge_exhausted() -> bool:
-    """Judge: lite + flash kamlin salaw."""
-    return gemini_exhausted() and all(_cooldown.get(m, 0) > time.time() for m in _lite_models)
+def lite_note(out: dict) -> str:
+    """Ila l ktaba tsawbat b flash-lite (flash sala): tnbih bach l user yraje3 l3arbiya."""
+    return "⚠️ <b>[lite]</b> raje3 l3arbiya 9bel ma tnchr" if "lite" in out.get("_model", "") else ""
 
 
 def writer_ready() -> bool:
@@ -1240,7 +1242,7 @@ def judge_batch(items: list[dict], stories: list[dict]) -> dict[str, dict] | Non
         out = gemini_json(JUDGE_BATCH_PROMPT, f"الأخبار الجديدة:\n{new}\n\nالأخبار السابقة:\n{old}",
                           JUDGE_BATCH_SCHEMA, 0.0)
     except GeminiError as e:
-        if not judge_exhausted():
+        if not gemini_exhausted():
             log(f"[judge KO] {str(e)[:300]}")
         return verdicts or None
     for r in out.get("items") or []:
@@ -1427,12 +1429,12 @@ def process(item: dict, number: int, score: int, urgent: bool = False,
 def versions(item: dict, out: dict, img, small, upscaled: bool, alert_id: int | None, urgent: bool,
              with_covers: bool = True, pics: dict | None = None) -> None:
     credit = f"\n\n{esc(item['credit'])}" if item.get("credit") else ""
-    tg_send(f"📰 <b>النسخة 1 (كاملة)</b>\n\n<b>{esc(out['title'].strip())}</b>\n\n{esc(out['article'].strip())}{credit}",
+    tg_send(f"📰 <b>النسخة 1 (كاملة)</b>{' · ' + lite_note(out) if lite_note(out) else ''}\n\n<b>{esc(out['title'].strip())}</b>\n\n{esc(out['article'].strip())}{credit}",
             reply_to=alert_id)
     # description d Instagram wajda l copie: bla header w bla titre (titre kayn f cover)
     tg_send(f"{esc(out['instagram'].strip())}{credit}", reply_to=alert_id)
     if with_covers:
-        covers(item, out, img, small, upscaled, alert_id, urgent=urgent, pics=pics)
+        covers(item, out, img, small, upscaled, alert_id, "\n" + lite_note(out) if lite_note(out) else "", urgent=urgent, pics=pics)
 
 
 RETRY_HOURS = 12
@@ -1449,7 +1451,7 @@ def retry_pending(state: dict) -> None:
     if not queue:
         return
     if not writer_ready():
-        log(f"[retry mazal] {len(queue)} f queue: quota d flash sala")
+        log(f"[retry mazal] {len(queue)} f queue: quota d Gemini sala (flash w lite)")
         return
     job = queue[0]
     item = job["item"]
@@ -1499,7 +1501,8 @@ def title_only(item: dict, img, small, upscaled: bool, alert_id: int | None, urg
         return
     tg_send("ℹ️ النص ما توصلناش بيه (غير العنوان): ma kaynach النسخة 1 w 2. "
             "Cover tsawb ghir mn l 3onwan, raje3 l source 9bel ma tnchr.", reply_to=alert_id)
-    covers(item, out, img, small, upscaled, alert_id, "\nℹ️ Mn l 3onwan bark (nass ma wselch)", urgent, pics)
+    covers(item, out, img, small, upscaled, alert_id, "\nℹ️ Mn l 3onwan bark (nass ma wselch)" + ("\n" + lite_note(out) if lite_note(out) else ""),
+           urgent, pics)
 
 
 def covers(item: dict, out: dict, img, small, upscaled: bool, alert_id: int | None, note: str = "",
@@ -1785,7 +1788,7 @@ def poll_once(state: dict, sources: list[dict]) -> None:
     today = datetime.now(TZ).strftime("%Y-%m-%d")
     due = bool(queue) and (now - min(q["queued"] for q in queue) >= JUDGE_WAIT or len(queue) >= JUDGE_BATCH)
     while due and queue:
-        if not NO_AI and judge_exhausted():
+        if not NO_AI and gemini_exhausted():
             break
         batch = queue[:JUDGE_BATCH]
         verdicts = judge_batch(batch, state["stories"])
