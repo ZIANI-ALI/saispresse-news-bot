@@ -80,7 +80,7 @@ SERPER_CREDITS = int(os.environ.get("SERPER_CREDITS", "2500"))  # credits li kan
 REPORT_HOUR = int(os.environ.get("REPORT_HOUR", "22"))  # sa3a dyal rapport l youmi (Casablanca)
 
 SEEN_TTL = 4 * 86400
-USED_IMG_DAYS = 30  # tswira 7orra/rasmiya li tsiftet ma t3awedch tban had l mudda
+USED_IMG_HOURS = 3  # tswira 7orra/rasmiya li tsiftet ma t3awedch tban had l mudda
 MIN_TEXT_FOR_AI = 200
 MAX_TEXT_FOR_AI = 12000
 TZ = ZoneInfo("Africa/Casablanca")
@@ -387,7 +387,7 @@ def best_image(urls: list[str]) -> Image.Image | None:
     return best
 
 
-# state["used_imgs"]: {id d tswira wla "h:<dhash>": ts}. Tsawer li tsiftu f USED_IMG_DAYS (bach ma ttkerrarch),
+# state["used_imgs"]: {id d tswira wla "h:<dhash>": ts}. Tsawer li tsiftu f USED_IMG_HOURS (bach ma ttkerrarch),
 # b l ID w b "basma" (dhash) bach nfe9o b nafs tswira 7tta ila jat mn bank okhra wla b ID khor.
 _used_free: dict = {}
 
@@ -1997,10 +1997,10 @@ def main() -> int:
     global _gstats, _used_free
     _gstats = state.setdefault("gemini", {})
     _used_free = state.setdefault("used_imgs", {})
-    cutoff = time.time() - USED_IMG_DAYS * 86400
+    cutoff = time.time() - USED_IMG_HOURS * 3600
     for k in [k for k, ts in _used_free.items() if ts < cutoff]:
         del _used_free[k]
-    log(f"[used_imgs] {len(_used_free)} f state ({USED_IMG_DAYS} youm)")
+    log(f"[used_imgs] {len(_used_free)} f state ({USED_IMG_HOURS} sa3at)")
     deadline = time.time() + RUN_MINUTES * 60
     try:
         while True:
