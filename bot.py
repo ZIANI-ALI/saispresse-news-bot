@@ -1694,10 +1694,7 @@ def covers(item: dict, out: dict, img, small, upscaled: bool, alert_id: int | No
         match["away_badge"] = team_badge(club_en(match["away"]) or match.get("away_en", ""))
     out = {**out, "match": match}
     # tsawer ta3biriya (7tta 2) bach t5tar binathom. Fallback (call Gemini zayed) ghir ila ma kaynach chakhsiya.
-    # Match fih chi3ar: cover d chi3arat f blasthom (tsawer 7orra d match = ghaliban stade ma 3endo 3ala9a).
-    if match and (match["home_badge"] is not None or match["away_badge"] is not None):
-        frees = []
-    elif pics is not None:
+    if pics is not None:
         frees = [got for got in map(take_cand, pre_free) if got]
     elif any(c[4] in ("rasmiya", "Google") for c in choices):
         frees = []
