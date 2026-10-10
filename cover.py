@@ -4,6 +4,7 @@ Jouj d les formes:
   A: tswira l fo9 katdoub f navy, titre kbir ta7tha (l forme l 3adiya, katkhdem m3a ay tswira).
   D: tswira 3amra l post kamel, cadre gold, titre f boîte navy (ghir ila tswira twila w HD).
   match: natija d match: tswira l fo9, carte d score (l fer9an, l ahdaf, li sjlou), titre sghir.
+         Ila l9ina chi3arat: cover d chi3arat f blast tsawer 7orra (make_badges_post).
 """
 import re
 from io import BytesIO
@@ -257,6 +258,35 @@ def layout_match(img: Image.Image, title: str, match: dict, crop: Crop, stock: b
     return im
 
 
+_MINUTE_RE = re.compile(r"\d{1,3}(?:\s*\+\s*\d{1,2})?")
+
+
+def clean_scorers(text, goals: int) -> str:
+    """Li sjlou kif katbhom Gemini, b la9youd: bla latin/JSON (ma ytsrrbch "home_en"...), bla jomal,
+    bla tikrar, w 3adad l ahdaf ma ydouzch l score (score 0 = walou)."""
+    if goals <= 0:
+        return ""
+    text = re.split(r'[A-Za-z"{}\[\]:\\]', str(text or ""), maxsplit=1)[0]  # ay 7aja mor latin/JSON = ghalat
+    out, seen, n = [], set(), 0
+    for part in re.split(r"[،,؛;\n]", text):
+        part = re.sub(r"\s+", " ", part).strip(" .-–")
+        mins = _MINUTE_RE.findall(part)
+        name = re.sub(r"\(.*?\)|[\d'’+\s]+", " ", part).split()
+        if not name and mins and out and n + len(mins) <= goals:  # "الكعبي 12'، 55'": d9i9a dyal li 9bel
+            out[-1] += " " + part
+            n += len(mins)
+            continue
+        if not name or len(name) > 4 or " ".join(name) in seen:  # jomla machi smiya, wla mkerrer
+            continue
+        k = max(1, len(mins))
+        if n + k > goals:
+            break
+        seen.add(" ".join(name))
+        out.append(part)
+        n += k
+    return "، ".join(out)
+
+
 def valid_match(m) -> dict | None:
     """Gemini kay3ti 'match' ghir ila kan l khabar natija d match sala; nt2akdo mn l 9yam."""
     if not isinstance(m, dict) or not str(m.get("home", "")).strip() or not str(m.get("away", "")).strip():
@@ -267,7 +297,63 @@ def valid_match(m) -> dict | None:
         return None
     if not (0 <= hs <= 30 and 0 <= as_ <= 30):
         return None
-    return {**m, "home_score": hs, "away_score": as_}
+    return {**m, "home_score": hs, "away_score": as_,
+            "home_scorers": clean_scorers(m.get("home_scorers"), hs),
+            "away_scorers": clean_scorers(m.get("away_scorers"), as_)}
+
+
+def _badge_color(badge: Image.Image) -> tuple[int, int, int]:
+    """Lon l ghaleb f chi3ar (bla byed/k7al/rmadi), bach nlewno bih jiht l fari9."""
+    small = badge.convert("RGBA").resize((48, 48))
+    px, count = small.load(), {}
+    for x in range(48):
+        for y in range(48):
+            r, g, b, a = px[x, y]
+            if a < 200 or max(r, g, b) < 40 or max(r, g, b) - min(r, g, b) < 40:
+                continue
+            key = (r // 32, g // 32, b // 32)
+            count[key] = count.get(key, 0) + max(r, g, b) - min(r, g, b)  # lon m9awed kayghleb l bahet
+    if not count:
+        return NAVY2
+    return tuple(v * 32 + 16 for v in max(count, key=count.get))
+
+
+def _mix(c1, c2, t: float) -> tuple[int, int, int]:
+    return tuple(round(a * (1 - t) + b * t) for a, b in zip(c1, c2))
+
+
+def badges_bg(match: dict) -> Image.Image:
+    """Khalfiya bla tswira l natija d match: kol fari9 b lon chi3aro f jihto (home limen), w chi3aro kbir l fo9."""
+    hb, ab = match.get("home_badge"), match.get("away_badge")
+    hc = _mix(_badge_color(hb) if hb is not None else NAVY2, NAVY, 0.45)
+    ac = _mix(_badge_color(ab) if ab is not None else NAVY2, NAVY, 0.45)
+    im = Image.new("RGBA", (W, H), ac + (255,))
+    mask = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(mask).polygon([(600, 0), (W, 0), (W, H), (480, H)], fill=255)
+    im.paste(Image.new("RGBA", (W, H), hc + (255,)), (0, 0), mask)
+    ImageDraw.Draw(im).line([(600, 0), (480, H)], fill=GOLD, width=6)
+    for badge, cx in ((hb, 810), (ab, 270)):
+        if badge is None:
+            continue
+        big = badge.copy()
+        big.thumbnail((400, 400), Image.LANCZOS)
+        if big.width < 400 and big.height < 400:  # chi3ar sghir: nkebbroh
+            r = 400 / max(big.size)
+            big = big.resize((round(big.width * r), round(big.height * r)), Image.LANCZOS)
+        x, y = cx - big.width // 2, 420 - big.height // 2
+        shadow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        shadow.paste((0, 0, 0, 150), (x + 8, y + 14), big.split()[3])
+        im.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(14)))
+        im.alpha_composite(big, (x, y))
+    return im
+
+
+def make_badges_post(title: str, match: dict, urgent: bool = False) -> bytes:
+    """Cover d natija bla tswira: chi3arat kbar l fo9, w ta7t score b smiyat l fer9an (bla chi3arat sghar)."""
+    match = valid_match(match)
+    bg = badges_bg(match)
+    plain = {**match, "home_badge": None, "away_badge": None}
+    return _jpeg(layout_match(bg, clean_title(title), plain, lambda im, size: im, False, urgent))
 
 
 def choose_layout(native: tuple[int, int], upscaled: bool, n_lines: int) -> str:
