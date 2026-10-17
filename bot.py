@@ -17,7 +17,7 @@ Env:
   NO_AI=1              bla Gemini (test)
   DEDUP_HOURS          default 24 (nafs l khabar men source okhra f had l mudda ma kaytsiftsh)
   REPORT_HOUR          default 22 (rapport youmi: ina source kaynchr lowl)
-  MIN_SCORE            default 7 (ahamiya mn 10: khabar wa7ed b had score f kol sa3a)
+  MIN_SCORE            default 8 (ahamiya mn 10: khabar wa7ed b had score f kol sa3a)
   HIGH_SCORE           default 8 (men had score l fo9 kolchi kaytsifet, bla 7add)
   JUDGE_WAIT           default 300 (s: akhbar jdad kaytjm3o had l mudda w kaytjudgaw f call Gemini wa7d)
   JUDGE_BATCH          default 15 (max akhbar f call wa7d d judge)
@@ -73,7 +73,7 @@ GEMINI_MIN_INTERVAL = float(os.environ.get("GEMINI_MIN_INTERVAL", "7"))
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 NO_AI = os.environ.get("NO_AI") == "1"
 DEDUP_HOURS = float(os.environ.get("DEDUP_HOURS", "24"))
-MIN_SCORE = int(os.environ.get("MIN_SCORE", "7"))      # ahamiya mn 10: >= hadi kaytsifet kolchi (7tta dawli)
+MIN_SCORE = int(os.environ.get("MIN_SCORE", "8"))      # ahamiya mn 10: >= hadi kaytsifet kolchi (7tta dawli)
 HIGH_SCORE = int(os.environ.get("HIGH_SCORE", "8"))    # > hadi (9-10): 3ajil, w bla nass kaytsifet daba
 JUDGE_WAIT = float(os.environ.get("JUDGE_WAIT", "300"))  # kantsnaw had l mudda (s) bach njm3o akhbar f call wa7d
 JUDGE_BATCH = int(os.environ.get("JUDGE_BATCH", "15"))   # max akhbar f call wa7d d judge
