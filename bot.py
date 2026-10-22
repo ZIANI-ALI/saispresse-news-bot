@@ -1555,6 +1555,9 @@ def tg_post(method: str, timeout: int, **kw) -> requests.Response:
             wait = r.json().get("parameters", {}).get("retry_after", 5)
         except ValueError:
             wait = 5
+        if wait > 60:  # flood control twil: ma n7bsouch l bot d9aye9, l call kayfshel w kaytlogga
+            log(f"[telegram 429] {method}: Telegram kaygoul tsenna {wait}s → ma kantsnach")
+            return r
         log(f"[telegram 429] kantsna {wait}s")
         time.sleep(wait + 1)
     return r
@@ -1920,6 +1923,30 @@ def photo_credit(e: dict) -> str:
     return f"الصورة: {m.group(1).strip()}" if m and e.get("free") else ""
 
 
+SITE_RETRY_PAUSES = (0, 5, 15)  # CDN d Hostinger kayt9ta3 / kayrj3 307 b zher: 3 mrrat
+
+
+def site_request(url: str, data: dict | None = None, files: dict | None = None) -> requests.Response:
+    """POST l saispress.com b retry (connexion t9t3at, timeout, 5xx, boucle d 307 d CDN).
+    Retry safe: /api/bot/publish kayrja3 l article li kayn ila nefs l 3onwan f 15 d9i9a."""
+    err = ""
+    for pause in SITE_RETRY_PAUSES:
+        if pause:
+            log(f"[site] {err} → n3awdo mor {pause}s")
+            time.sleep(pause)
+        try:
+            r = requests.post(url, timeout=(10, 60), headers={"Authorization": f"Bearer {BOT_PUBLISH_SECRET}",
+                                                              "User-Agent": UA}, data=data, files=files)
+        except requests.RequestException as ex:
+            err = ex.__class__.__name__
+            continue
+        if r.status_code >= 500:
+            err = f"HTTP {r.status_code}"
+            continue
+        return r
+    raise requests.ConnectionError(err)
+
+
 def site_publish(c: dict, e: dict, raw: Image.Image, fit: bool = False) -> tuple[str | None, str]:
     """Article f saispress.com (/api/bot/publish), mnchour direct m3a SEO auto. Kayrja3 (lien d article, ghalat)."""
     site = c["site"]
@@ -1929,9 +1956,8 @@ def site_publish(c: dict, e: dict, raw: Image.Image, fit: bool = False) -> tuple
     cat = _site_cat(site["category"], known)
     for _ in range(2):
         try:
-            r = requests.post(SITE_PUBLISH_URL, timeout=90, headers={"Authorization": f"Bearer {BOT_PUBLISH_SECRET}"},
-                          data={"title": site["title"][:300], "body": body, "category": cat},
-                          files={"image": ("saispress-site.jpg", image, "image/jpeg")})
+            r = site_request(SITE_PUBLISH_URL, data={"title": site["title"][:300], "body": body, "category": cat},
+                             files={"image": ("saispress-site.jpg", image, "image/jpeg")})
         except requests.RequestException as ex:
             return None, f"site ma jawebch ({ex.__class__.__name__})"
         try:
@@ -1990,8 +2016,7 @@ def ig_quota() -> tuple[int, int] | None:
 def site_media(data: bytes) -> str:
     """JPEG public f site (Instagram kayjib tswira b URL)."""
     try:
-        r = requests.post(SITE_MEDIA_URL, timeout=90, headers={"Authorization": f"Bearer {BOT_PUBLISH_SECRET}"},
-                          files={"image": ("saispress-ig.jpg", data, "image/jpeg")})
+        r = site_request(SITE_MEDIA_URL, files={"image": ("saispress-ig.jpg", data, "image/jpeg")})
         j = r.json()
     except (requests.RequestException, ValueError) as ex:
         raise IGError(f"site ma 9blch tswira ({ex.__class__.__name__})") from None
@@ -2090,6 +2115,7 @@ def card_pack(mid: int, c: dict) -> str:
         story_raw = load(e["raw"])
     story = card_story(c, e, story_raw) if "Story" in want else None
 
+    site_down = ""
     if "Site" in want and not again and not c.get("site_url"):
         if SITE_PUBLISH_URL and BOT_PUBLISH_SECRET and raw and c.get("site"):
             url, err = site_publish(c, se, raw, fit)
@@ -2100,6 +2126,8 @@ def card_pack(mid: int, c: dict) -> str:
                 log(f"[site KO] {err}")
                 c["site_line"] = f"⚠️ Site ma tnchrch ({esc(err)}): tswira w النسخة 1 f l pack"
                 manual.add("Site")
+                if err.startswith("site ma jawebch"):
+                    site_down = err
         else:
             manual.add("Site")
 
@@ -2107,6 +2135,9 @@ def card_pack(mid: int, c: dict) -> str:
     todo = ["Post"] if "Post" in want and not ig.get("Post") and not again else []
     if todo and not ig_ready():
         manual.update(todo)
+    elif todo and site_down:  # tswira d Instagram katmchi l nefs site: ma ntsnawch 3awtani
+        manual.update(todo)
+        c["ig_line"] = f"📸 Instagram: ma tnchrch (site ma jawebch, tswira katmchi mn site) → f l pack"
     elif todo:
         quota = ig_quota()
         err = ""
@@ -2359,7 +2390,28 @@ def cards_loop(stop: threading.Event) -> None:
 
 
 _buttons_409 = False
-_pub_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="nchr")
+class PubPool:
+    """Nchr (site / Instagram) f threads daemon: ila t3l9 chi wa7d (Telegram 429, réseau), run y9der ysali
+    (ThreadPoolExecutor kaykhlli l process ytsenna threads dyalo l abad mlli kaysali)."""
+
+    def __init__(self) -> None:
+        self.threads: list[threading.Thread] = []
+
+    def submit(self, fn, *args) -> None:
+        self.threads = [t for t in self.threads if t.is_alive()]
+        t = threading.Thread(target=fn, args=args, name="nchr", daemon=True)
+        self.threads.append(t)
+        t.start()
+
+    def shutdown(self, wait: bool = True, limit: float = 150) -> None:
+        end = time.time() + limit
+        for t in self.threads:
+            t.join(max(0.0, end - time.time()) if wait else 0)
+        if any(t.is_alive() for t in self.threads):
+            log("[nchr] mazal kaynchr f l khrouj d run: t9ta3")
+
+
+_pub_pool = PubPool()
 BUSY_SECONDS = 300  # card "⏳ Kanchr…": ila mat l process f l wost, katrj3 t9bel clicks mor 5 d9aye9
 
 
@@ -2905,7 +2957,7 @@ def main() -> int:
         stop.set()
         if buttons:
             buttons.join(45)  # getUpdates kaytsna 7tta 25s: nkhlliw l click l akhir ykml
-        _pub_pool.shutdown(wait=True)  # nchr li bda (site / Instagram) khasso ykmmel 9bel ma ysali run
+        _pub_pool.shutdown(limit=150)  # nchr li bda (site / Instagram) kaykmmel 9bel ma ysali run (max 2.5 d9)
         cards_save()
     return 0
 
