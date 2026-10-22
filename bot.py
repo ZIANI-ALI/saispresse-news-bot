@@ -95,7 +95,9 @@ REPORT_HOUR = int(os.environ.get("REPORT_HOUR", "22"))  # sa3a dyal rapport l yo
 
 SEEN_TTL = 4 * 86400
 USED_IMG_HOURS = 3  # tswira 7orra/rasmiya li tsiftet ma t3awedch tban had l mudda
-IMG_MIN_SCORE = 7  # tswira 7orra (ta3biriya) ma katdkhol l covers ila Gemini 3taha 9al mn had score (0-10)
+IMG_MIN_SCORE = 4  # tswira 7orra (ta3biriya) ma katdkhol l covers ila Gemini 3taha 9al mn had score (0-10)
+N_FREE = 3  # tsawer m3a tswira d source f kol card (7orra + chakhsiya / idara), mn l a7san score
+PUB_IMG_DAYS = 2  # tswira li tkhtarat (✅ Valider) wla tnchrat ma t3awedch tt9tar7 had l mudda
 MIN_TEXT_FOR_AI = 200
 MAX_TEXT_FOR_AI = 12000
 TZ = ZoneInfo("Africa/Casablanca")
@@ -426,14 +428,15 @@ def used_img(c: dict) -> bool:
     return c.get("hash") is not None and _near(c["hash"], (int(k[2:], 16) for k in _used_free if k.startswith("h:")))
 
 
-# _cards["pub_imgs"]: {basma (hex): ts} d tsawer li tnchrou (🚀 Publier). Ma kayt9tar7ouch 3awtani f nefs nhar.
+# _cards["pub_imgs"]: {basma (hex): ts} d tsawer li tkhtarou (✅ Valider) wla tnchrou (🚀 Publier).
+# Ma kayt9tar7ouch 3awtani PUB_IMG_DAYS.
 def pub_img(h: int | None) -> bool:
     if h is None:
         return False
-    midnight = datetime.now(TZ).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    cutoff = time.time() - PUB_IMG_DAYS * 86400
     with _cards_lock:
-        today = [int(k, 16) for k, ts in _cards.get("pub_imgs", {}).items() if ts >= midnight]
-    return _near(h, today)
+        recent = [int(k, 16) for k, ts in _cards.get("pub_imgs", {}).items() if ts >= cutoff]
+    return _near(h, recent)
 
 
 def mark_pub(*hexes: str | None) -> None:
@@ -594,12 +597,12 @@ PICK_SCHEMA = {  # tswira d chakhsiya (rasmiya)
 
 
 def best_scored(scores, n: int) -> list[int]:
-    """Indices (max 2) d tsawer li 3ndhom score >= IMG_MIN_SCORE, mn l a7san."""
+    """Indices (max N_FREE) d tsawer li 3ndhom score >= IMG_MIN_SCORE, mn l a7san."""
     try:
         scores = [int(x) for x in scores or []][:n]
     except (TypeError, ValueError):
         return []
-    return sorted((j for j, sc in enumerate(scores) if sc >= IMG_MIN_SCORE), key=lambda j: -scores[j])[:2]
+    return sorted((j for j, sc in enumerate(scores) if sc >= IMG_MIN_SCORE), key=lambda j: -scores[j])[:N_FREE]
 
 
 def thumb_jpeg(cand: dict) -> bytes | None:
@@ -677,8 +680,8 @@ def free_cands(query: str, category: str = "") -> list[dict]:
         if not t:
             continue
         c = {**c, "jpeg": t, "hash": dhash(t)}
-        # nafs tswira tsiftet 9bel (b ID khor), wla katkerrer f had l liste (Pexels w Pixabay)
-        if c["hash"] is not None and used_img(c):
+        # nafs tswira tsiftet 9bel (b ID khor) wla tkhtarat / tnchrat, wla katkerrer f had l liste (Pexels w Pixabay)
+        if c["hash"] is not None and (used_img(c) or pub_img(c["hash"])):
             skipped[1] += 1
             continue
         if c["hash"] is not None and _near(c["hash"], hashes):
@@ -722,8 +725,8 @@ REF_NOTE = ("الصورة المرجعية (آخر صورة، صورة {n}) هي
 
 def free_images(query: str, news: str = "", category: str = "",
                 ref: bytes | None = None) -> list[tuple[Image.Image, str]]:
-    """Call Gemini bo7dha kaychouf l tsawer w kay3tihom score (7tta 2 >= IMG_MIN_SCORE). ref: tswira d source.
-    Fallback (khabar bla hints mn judge), w b7ath tani b photo_query (tswira d source) ila 7tta wa7da ma dkhlat."""
+    """Call Gemini bo7dha kaychouf l tsawer w kay3tihom score (7tta N_FREE >= IMG_MIN_SCORE). ref: tswira d source.
+    Fallback (khabar bla hints mn judge), w b7ath tani b photo_query (tswira d source) ila na9sin."""
     cands = free_cands(query, category)
     if not cands:
         return []
@@ -1381,7 +1384,7 @@ def with_pics(system: str, user: str, schema: dict, pics: dict | None) -> tuple[
 
 
 def picked(out: dict, pics: dict | None) -> tuple[dict | None, list[dict]]:
-    """(candidat d chakhsiya, 7tta 2 candidats ta3biriyin b score >= IMG_MIN_SCORE) mn call d ktaba."""
+    """(candidat d chakhsiya, 7tta N_FREE candidats ta3biriyin b score >= IMG_MIN_SCORE) mn call d ktaba."""
     if not pics:
         return None, []
     person, free = pics["person"], pics["free"]
@@ -1715,7 +1718,7 @@ def cards_save() -> None:
         for old_day in sorted(_cards["days"])[:-14]:
             del _cards["days"][old_day]
         pub = _cards.get("pub_imgs", {})
-        for h in [h for h, ts in pub.items() if ts < time.time() - 2 * 86400]:
+        for h in [h for h, ts in pub.items() if ts < time.time() - PUB_IMG_DAYS * 86400]:
             del pub[h]
         for _ in range(5):  # thread akhor y9der ybddel card f nefs l w9t: n3awdo
             try:
@@ -2403,7 +2406,9 @@ def on_callback(q: dict) -> None:
     elif act == "ok" and ents and c["chosen"] is None:
         with _cards_lock:
             c["chosen"], c["by"] = c["i"], who.get("first_name", "")
+            chosen_hash = ents[c["i"]].get("hash")
             c["status"] = f"✅ Cover {c['i'] + 1} mkhtara" + (f" ({esc(c['by'])})" if c["by"] else "")
+        mark_pub(chosen_hash)  # tswira li tkhtarat ma t3awedch tban f cards jayin (PUB_IMG_DAYS)
         tg_answer(q, "✅ Cover mkhtara")
         card_show(mid, c)
     elif act == "sp" and c["chosen"] is not None and site_cands(c) and not c.get("site_mode"):
@@ -2760,26 +2765,28 @@ def build_covers(item: dict, out: dict, img, small, upscaled: bool, urgent: bool
     out = {**out, "match": match}
     # tswira d l idara (Commons) ila l khabar 3la mu2assasa maghribiya: katakhod blasat tswira 7orra t-tanya
     idara = idara_cand((out.get("institution") or "").strip())
-    idara_img = take_cand(idara) if idara else None  # ila ma tnzlatch (429): jouj tsawer 7orra kif 9bel
+    idara_img = take_cand(idara) if idara else None  # ila ma tnzlatch (429): tsawer 7orra f blasetha
     if idara_img and pub_img(dhash(idara_img[0])):
-        log(f"[pub_imgs] tswira idara tnchrat lyoum: {idara['title'][:70]}")
+        log(f"[pub_imgs] tswira idara tkhtarat / tnchrat: {idara['title'][:70]}")
         idara, idara_img = None, None
-    # tsawer ta3biriya (7tta 2) bach t5tar binathom. Fallback (call Gemini zayed) ghir ila ma kaynach chakhsiya.
+    # N_FREE tsawer m3a source (chakhsiya w idara mn l 3dad) bach t5tar binathom. Ila na9sin: b7ath tani b photo_query.
     has_person = any(ch["origin"] in ("rasmiya", "Google") for ch in choices)
+    need = max(0, N_FREE - has_person - bool(idara_img))
     if pics is not None:
-        frees = [got for got in map(take_cand, pre_free[:1] if idara_img else pre_free) if got]
+        frees = [got for got in map(take_cand, pre_free[:need]) if got]
         photo_q = (out.get("photo_query") or "").strip()
-        if not frees and not idara_img and not has_person and img and photo_q:
-            log(f"[tswira 7orra] 7tta wa7da ma wslat {IMG_MIN_SCORE} → b7ath b tswira d source: {photo_q[:100]}")
-            frees = free_images(photo_q, news, out.get("category", ""), ref=ref_jpeg(img))
-    elif has_person:
-        frees = []
+        if len(frees) < need and img and photo_q:
+            log(f"[tswira 7orra] {len(frees)}/{need} wslat {IMG_MIN_SCORE} → b7ath b tswira d source: {photo_q[:100]}")
+            frees += free_images(photo_q, news, out.get("category", ""), ref=ref_jpeg(img))[:need - len(frees)]
+    elif need:
+        frees = free_images(out.get("image_query", ""), news, out.get("category", ""),
+                            ref=ref_jpeg(img) if img else None)[:need]
     else:
-        frees = free_images(out.get("image_query", ""), news, out.get("category", ""), ref=ref_jpeg(img) if img else None)
+        frees = []
     frees = [(*f, "7orra") for f in frees]
     if idara_img:
         log(f"[tswira idara] {out['institution']}: {idara['title'][:70]}")
-        frees = [(*idara_img, "idara")] + frees[:1]
+        frees = [(*idara_img, "idara")] + frees
     elif idara:
         log(f"[tswira idara KO] {out['institution']}: ma tnzlatch {idara['title'][:70]}")
     for img_free, photo_credit, origin in frees:
@@ -2787,22 +2794,22 @@ def build_covers(item: dict, out: dict, img, small, upscaled: bool, urgent: bool
         img_free, free_up = enhance(img_free)
         choices.append({"img": img_free, "native": free_size, "up": free_up, "stock": True, "origin": origin,
                         "credit": photo_credit})
-    # tswira li tnchrat lyoum (source, chakhsiya, 7orra) ma t3awedch tt9tar7
+    # tswira li tkhtarat / tnchrat (source, chakhsiya, 7orra) ma t3awedch tt9tar7 (PUB_IMG_DAYS)
     fresh = []
     for ch in choices:
         ch["hash"] = dhash(ch["img"])
         if pub_img(ch["hash"]):
-            log(f"[pub_imgs] tswira {ch['origin']} tnchrat lyoum → ma t9tar7atch")
+            log(f"[pub_imgs] tswira {ch['origin']} tkhtarat / tnchrat → ma t9tar7atch")
         else:
             fresh.append(ch)
     choices = fresh
     # covers: tswira d l khabar (source >= 600px), tswira d l chakhsiya (rasmiya, sinon Google),
-    # w 7tta 2 tsawer ta3biriya 7orra (bach l user ykhtar)
+    # w tsawer ta3biriya 7orra / idara 7tta N_FREE m3a chakhsiya (bach l user ykhtar)
     real = [ch for ch in choices if not ch["stock"]]
     person = next((ch for ch in real if ch["origin"] in ("rasmiya", "Google")), None)
     source = next((ch for ch in real if ch["origin"] == "source" and min(ch["native"]) >= 600), None)
     picks = [ch for ch in (source, person) if ch] or real[:1]
-    picks += [ch for ch in choices if ch["stock"]][:2]
+    picks += [ch for ch in choices if ch["stock"]][:N_FREE - bool(person)]
     entries = []
     for ch in picks:
         try:
