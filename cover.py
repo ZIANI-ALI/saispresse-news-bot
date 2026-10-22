@@ -5,6 +5,7 @@ Jouj d les formes:
   D: tswira 3amra l post kamel, cadre gold, titre f boîte navy (ghir ila tswira twila w HD).
   match: natija d match: tswira l fo9, carte d score (l fer9an, l ahdaf, li sjlou), titre sghir.
          Ila l9ina chi3arat: cover d chi3arat f blast tsawer 7orra (make_badges_post).
+  story: 1080x1920 (make_story): tswira l fo9, panel navy, titre f l wost, logo, "التفاصيل".
 """
 import re
 from io import BytesIO
@@ -383,6 +384,69 @@ def make_post(img: Image.Image, title: str, category: str, crop: Crop,
         return _jpeg(layout_a(img, title, category, crop, stock, urgent=True)), "3ajil"
     kind = choose_layout(native, upscaled, len(lines))
     return _jpeg((layout_d if kind == "D" else layout_a)(img, title, category, crop, stock)), kind
+
+
+SW, SH = 1080, 1920  # story 9:16
+STORY_PH = 960       # tswira l fo9 (nos d story)
+STEPS_STORY = [(3, 80, 64), (4, 68, 54), (5, 58, 48)]
+
+
+def _chevrons(dr, cx: int, cy: int, size: int, fill) -> None:
+    """Jouj flèches l fo9 (b7al "swipe up") bla ma n7tajo glyph f l font."""
+    for k in (0, 1):
+        y = cy + k * size * 0.62
+        dr.line([(cx - size / 2, y + size / 2), (cx, y), (cx + size / 2, y + size / 2)], fill=fill, width=6,
+                 joint="curve")
+
+
+def make_story(img: Image.Image, title: str, category: str, crop: Crop, stock: bool = False,
+               urgent: bool = False) -> bytes:
+    """Story 1080x1920: tswira l fo9, panel navy ta7tha: catégorie, titre f l wost, logo, "التفاصيل" (l lien).
+    L contenu kollo bin safe zones d Instagram (fo9 ~250px w ta7t ~250px m3amrin b l interface)."""
+    title = clean_title(title)
+    category = clean_title(category)[:20]
+    accent = RED if urgent else GOLD
+    im = Image.new("RGBA", (SW, SH), (*NAVY, 255))
+    im.paste(crop(img, (SW, STORY_PH)), (0, 0))
+    im.alpha_composite(_vgrad(SW, 260, (0, 0, 0), 120, 0), (0, 0))  # profil d Instagram fo9 tswira
+    im.alpha_composite(_vgrad(SW, 140, NAVY, 0, 200, 1.4), (0, STORY_PH - 140))
+    glow = Image.new("RGBA", (SW, SH), (0, 0, 0, 0))
+    ImageDraw.Draw(glow).ellipse((-260, STORY_PH + 80, SW + 260, SH + 260), fill=(*NAVY2, 170))
+    im.alpha_composite(glow.filter(ImageFilter.GaussianBlur(140)))
+    mark = _logo(820)  # logo kbir chfaf f l jnab (filigrane)
+    mark.putalpha(mark.getchannel("A").point(lambda v: v * 11 // 255))
+    im.alpha_composite(mark, (-250, SH - 640))
+    dr = ImageDraw.Draw(im)
+    dr.rectangle((0, STORY_PH, SW, STORY_PH + 8), fill=accent)
+    if stock:
+        _text(dr, (50, STORY_PH - 40), "صورة تعبيرية", _font("Tajawal-Bold.ttf", 28), WHITE, "lm")
+
+    fnt, lines = _fit_title(title, "Tajawal-Black.ttf", 920, STEPS_STORY)
+    lh = int(fnt.size * 1.22)
+    pill_fnt = _font("Tajawal-Black.ttf", 44) if urgent else _font("Tajawal-Bold.ttf", 36)
+    pill_text = "عاجل" if urgent else category
+    pill_h = (sum(pill_fnt.getmetrics()) + 10) if pill_text else 0
+    lg = _logo(120)
+    block = (pill_h + 36 if pill_text else 0) + lh * len(lines) + 52 + lg.height
+    top = STORY_PH + 8 + max(44, (1570 - STORY_PH - 8 - block) // 2)
+    if pill_text:
+        tw = _width(pill_text, pill_fnt)
+        padx = 30 if urgent else 24
+        _pill(dr, round(SW / 2 + tw / 2 + padx), top, pill_text, pill_fnt, padx=padx, pady=10,
+              fill=accent, color=WHITE if urgent else NAVY)
+        top += pill_h + 36
+    for i, ln in enumerate(lines):
+        _text(dr, (SW // 2, top + i * lh), ln, fnt, WHITE, "ma")
+    top += lh * len(lines) + 52
+    im.alpha_composite(lg, ((SW - lg.width) // 2, top))
+    y = min(1690, max(1630, top + lg.height + 60))
+    # "التفاصيل": blasa d sticker d lien (ila tzad f Instagram)
+    more = _font("Tajawal-Bold.ttf", 38)
+    tw = _width("التفاصيل", more)
+    cx = SW // 2 + 26
+    _text(dr, (cx + tw / 2, y), "التفاصيل", more, WHITE, "rm")
+    _chevrons(dr, round(cx - tw / 2 - 34), y - 20, 26, accent)
+    return _jpeg(im)
 
 
 def _jpeg(im: Image.Image) -> bytes:

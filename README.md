@@ -5,7 +5,7 @@ Kayraqeb ~24 source dyal l akhbar f l Maghrib kol 60 tanya. Kol khabar jdid = **
 1. **Cover kbira** + header (score, source, sa3a, 3onwan, lien) + ma3loumat 3la tswira (7orra wla copyright, credit).
 2. **◀ 1/3 ▶**: kat9leb bin covers (tswira d source, chakhsiya, tsawer 7orra) f nefs l message.
 3. **✅ Valider had l cover** → toggles **🌐 Site / 📸 Post / 📱 Story** (Story ✅ automatiquement ila score 9-10 wla عاجل).
-4. **📦 Pack final** → reply b fichiers quality kamla: cover 4:5 (Post), tswira 16:9 (Site), story 9:16 (cover f l wost fo9 khalfiya mdbbla), w nsous jahzin l copie: **النسخة 1** (l site) w **Caption** d Instagram. Compteur d lyoum kayban (API Instagram: max 50 post+story f 24h).
+4. **📦 Pack final** → reply b fichiers quality kamla: cover 4:5 (Post), tswira 16:9 (Site), story 9:16 (tswira l fo9, panel navy b catégorie, titre f l wost, logo w "التفاصيل" l lien; match/chi3arat: cover f l wost), w nsous jahzin l copie: **النسخة 1** (l site) w **Caption** d Instagram. Compteur d lyoum kayban (API Instagram: max 50 post+story f 24h).
 5. **📄 النسخة 1 / 📝 Caption**: kaytsiftou ghir ila clickiti. **↩️ Bddel cover** kayrj3ek l ikhtiyar.
 
 Covers kaytkhzno f Telegram (file_id) w cards f `state/cards.json` (3 iyam). Boutons kayjiw b `getUpdates` f thread bo7dha: click bin run w run (~1-2 d9aye9) kaytsna 7tta ybda run jay. Ila bot 3ndo webhook (wla bot akhor kaysta3mel nefs token), Telegram kayrfed getUpdates (409) w bot kaysifet tnbih wa7d f nhar. `EDITOR_IDS` (Variables, ikhtiyari): IDs li y9dro yclickiw; khawi = ay wa7d f chat. A7san chat ykoun private: `TELEGRAM_CHAT_ID` = ID dyalk.

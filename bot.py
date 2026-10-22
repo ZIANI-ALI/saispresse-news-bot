@@ -984,7 +984,7 @@ def insta_image(img: Image.Image) -> bytes:
 
 
 def story_image(post: bytes) -> bytes:
-    """Story 9:16 mn cover 4:5: cover f l wost (bin safe zones d Instagram) fo9 nefs l cover mdbbla w mghmma."""
+    """Story 9:16 mn cover 4:5 (ghir l cover d match / chi3arat): cover f l wost (bin safe zones d Instagram) fo9 nefs l cover mdbbla w mghmma."""
     im = Image.open(BytesIO(post)).convert("RGB")
     w, h = STORY_SIZE
     scale = max(w / im.width, h / im.height)
@@ -1724,7 +1724,7 @@ def card_send(c: dict, entries: list[dict], preview: bytes | None = None, mid: i
     """Kaysifet card (wla kaykml card deja kayna b covers jdad). entries: covers b bytes
     ({cover, site, kind, origin, free, credit}). Kayrja3 ra9m d message."""
     if DRY_RUN:
-        c["entries"] = [{k: v for k, v in e.items() if k not in ("cover", "site")} | {"photo": "-", "doc": "-"}
+        c["entries"] = [{k: v for k, v in e.items() if k not in ("cover", "raw")} | {"photo": "-", "doc": "-"}
                         for e in entries]
         c["media"] = bool(entries or preview)
         c["preview"] = "-" if preview and not entries else None
@@ -1754,10 +1754,11 @@ def card_send(c: dict, entries: list[dict], preview: bytes | None = None, mid: i
     ents = []
     for k, e in enumerate(entries if c["media"] else []):
         step = f"{wait} {k + 1}/{len(entries)}"
-        ent = {key: e[key] for key in ("kind", "origin", "free", "credit")}
+        ent = {key: e[key] for key in ("kind", "origin", "free", "credit", "stock", "title", "category", "urgent")
+               if key in e}
         ent["doc"] = _fid(card_media(mid, "document", e["cover"], step, name="saispress-post-4x5.jpg"), "document")
-        if e.get("site"):
-            ent["site"] = _fid(card_media(mid, "document", e["site"], step, name="saispress-site-16x9.jpg"), "document")
+        if e.get("raw"):  # tswira l asliya: site 16:9 w story kaytsawbo mnha f Pack
+            ent["raw"] = _fid(card_media(mid, "document", e["raw"], step, name="saispress-photo.jpg"), "document")
         ent["photo"] = first_photo if k == 0 and first_photo else _fid(card_media(mid, "photo", e["cover"], step), "photo")
         if ent["doc"] and ent["photo"]:
             ents.append(ent)
@@ -1783,22 +1784,37 @@ def card_pack(mid: int, c: dict) -> str:
     """📦 Pack final: fichiers (quality kamla) + nsous jahzin l copie. Kayrja3 status."""
     e, o = c["entries"][c["chosen"]], c["opts"]
     media, files, parts = [], {}, []
+    # tswira l asliya d cover (chi3arat ma 3ndhomch: site kayakhod tswira d cover akhor)
+    raw_id = e.get("raw") or next((x["raw"] for x in c["entries"] if x.get("raw")), None)
+    raw = None
+    if raw_id and ((o["site"] and c["nass"]) or (o["story"] and e.get("raw"))):
+        data = tg_download(raw_id)
+        raw = Image.open(BytesIO(data)).convert("RGB") if data else None
     if o["post"]:
         media.append({"type": "document", "media": e["doc"]})
         parts.append("Post")
-    site = e.get("site") or next((x["site"] for x in c["entries"] if x.get("site")), None)
     if o["site"] and c["nass"]:
-        if site:
-            media.append({"type": "document", "media": site})
+        if raw:
+            files["w"] = ("saispress-site-16x9.jpg", render(raw, SITE_SIZE), "image/jpeg")
+            media.append({"type": "document", "media": "attach://w"})
         parts.append("Site")
     if o["story"]:
-        post = tg_download(e["doc"])
-        if post:
-            files["s"] = ("saispress-story-9x16.jpg", story_image(post), "image/jpeg")
+        story = None
+        if raw and e.get("raw") and e["kind"] != "match":
+            try:
+                story = cover.make_story(raw, e.get("title", ""), e.get("category", ""), crop_to,
+                                         e.get("stock", False), e.get("urgent", False))
+            except Exception as ex:  # story ma khasshach twe9ef l pack
+                log(f"[story KO] {ex.__class__.__name__}: {ex}")
+        if story is None:  # chi3arat / match: cover kamla f l wost
+            post = tg_download(e["doc"])
+            story = story_image(post) if post else None
+        if story:
+            files["s"] = ("saispress-story-9x16.jpg", story, "image/jpeg")
             media.append({"type": "document", "media": "attach://s"})
             parts.append("Story")
         else:
-            log("[pack KO] story: cover ma tnzlatch")
+            log("[pack KO] story: tswira ma tnzlatch")
     day = datetime.now(TZ).strftime("%Y-%m-%d")
     with _cards_lock:
         counts = _cards["days"].setdefault(day, {})
@@ -2145,13 +2161,17 @@ def build_covers(item: dict, out: dict, img, small, upscaled: bool, urgent: bool
             log(f"[cover KO] {e.__class__.__name__}: {e}")
             continue
         log(f"[cover] forme {kind} · tswira {ch['origin']} {ch['native'][0]}x{ch['native'][1]}")
-        entries.append({"cover": data, "site": render(ch["img"], SITE_SIZE), "kind": kind, "origin": ch["origin"],
-                        "free": ch["stock"] or ch["origin"] == "rasmiya", "credit": ch["credit"]})
+        raw = BytesIO()
+        ch["img"].convert("RGB").save(raw, "JPEG", quality=95, optimize=True, subsampling=0)
+        entries.append({"cover": data, "raw": raw.getvalue(), "kind": kind, "origin": ch["origin"],
+                        "free": ch["stock"] or ch["origin"] == "rasmiya", "credit": ch["credit"],
+                        "stock": ch["stock"], "title": out["instagram_title"], "category": out.get("category", ""),
+                        "urgent": urgent})
     if match and (match.get("home_badge") is not None or match.get("away_badge") is not None):
         try:
             data = cover.make_badges_post(out["instagram_title"], match, urgent)
             log("[cover] forme match · chi3arat")
-            entries.append({"cover": data, "site": None, "kind": "match", "origin": "chi3arat d l fer9an",
+            entries.append({"cover": data, "raw": None, "kind": "match", "origin": "chi3arat d l fer9an",
                             "free": False, "credit": ""})
         except Exception as e:
             log(f"[cover KO] chi3arat: {e.__class__.__name__}: {e}")
