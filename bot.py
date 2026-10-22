@@ -22,7 +22,7 @@ Env:
   JUDGE_WAIT           default 300 (s: akhbar jdad kaytjm3o had l mudda w kaytjudgaw f call Gemini wa7d)
   JUDGE_BATCH          default 15 (max akhbar f call wa7d d judge)
   EDITOR_IDS           ikhtiyari: IDs Telegram (b virgule) li y9dro yclickiw 3la boutons (khawi = ay wa7d f chat)
-  SITE_PUBLISH_URL, BOT_PUBLISH_SECRET  ikhtiyari: 🌐 Site f Pack kaydir brouillon f saispress.com (/api/bot/publish)
+  SITE_PUBLISH_URL, BOT_PUBLISH_SECRET  ikhtiyari: 🌐 Site kaynchr l article f saispress.com (/api/bot/publish)
   IG_ACCESS_TOKEN, IG_USER_ID  ikhtiyari: 🚀 Publier kaynchr Post w Story f Instagram (tswira b /api/bot/media d site)
 """
 
@@ -1879,7 +1879,7 @@ def photo_credit(e: dict) -> str:
 
 
 def site_publish(c: dict, e: dict, raw: Image.Image, fit: bool = False) -> tuple[str | None, str]:
-    """Brouillon f saispress.com (/api/bot/publish, status=draft). Kayrja3 (lien d admin, ghalat)."""
+    """Article f saispress.com (/api/bot/publish), mnchour direct m3a SEO auto. Kayrja3 (lien d article, ghalat)."""
     site = c["site"]
     body = site["body"] + (f"\n{photo_credit(e)}" if photo_credit(e) else "")
     image = site_image(raw, fit)
@@ -1888,7 +1888,7 @@ def site_publish(c: dict, e: dict, raw: Image.Image, fit: bool = False) -> tuple
     for _ in range(2):
         try:
             r = requests.post(SITE_PUBLISH_URL, timeout=90, headers={"Authorization": f"Bearer {BOT_PUBLISH_SECRET}"},
-                          data={"title": site["title"][:300], "body": body, "category": cat, "status": "draft"},
+                          data={"title": site["title"][:300], "body": body, "category": cat},
                           files={"image": ("saispress-site.jpg", image, "image/jpeg")})
         except requests.RequestException as ex:
             return None, f"site ma jawebch ({ex.__class__.__name__})"
@@ -1897,7 +1897,7 @@ def site_publish(c: dict, e: dict, raw: Image.Image, fit: bool = False) -> tuple
         except ValueError:
             j = {}
         if r.ok and j.get("url"):
-            log(f"[site] brouillon {j.get('id')} · {cat}")
+            log(f"[site] tnchr {j.get('id')} · {cat}")
             return j["url"], ""
         cats = j.get("categories") if isinstance(j.get("categories"), list) else None
         if r.status_code == 422 and cats and cat not in cats:  # ركن ma kaynch: nkhtar mn la liste d site
@@ -2025,7 +2025,7 @@ def card_story(c: dict, e: dict, raw: Image.Image | None) -> bytes | None:
 
 
 def card_pack(mid: int, c: dict) -> str:
-    """🚀 Publier: Site (brouillon) w Instagram (Post, Story) ila configurés. Li ma tnchrch (machi configuré,
+    """🚀 Publier: Site w Instagram (Post, Story) ila configurés. Li ma tnchrch (machi configuré,
     ghalat, quota) kayji f l pack (fichiers quality kamla + nsous) bach ytnchr b l yed.
     Click tani (🔁 Pack 3awtani): fichiers w nsous bo7dhom, bla nchr 3awtani."""
     e, o = c["entries"][c["chosen"]], c["opts"]
@@ -2052,7 +2052,7 @@ def card_pack(mid: int, c: dict) -> str:
             url, err = site_publish(c, se, raw, fit)
             if url:
                 c["site_url"] = url
-                c["site_line"] = f"🌐 Site: <a href=\"{html.escape(url)}\">brouillon f admin</a> (raje3 w nchr)"
+                c["site_line"] = f"🌐 Site: <a href=\"{html.escape(url)}\">tnchr ✅</a>"
             else:
                 log(f"[site KO] {err}")
                 c["site_line"] = f"⚠️ Site ma tnchrch ({esc(err)}): tswira w النسخة 1 f l pack"
@@ -2226,9 +2226,9 @@ def on_callback(q: dict) -> None:
         if c["packs"] and time.time() - c["packs"][-1] < 20:
             tg_answer(q, "Deja tsifet.")
             return
-        if ig_ready() and (o["post"] or o["story"]) and not c.get("published"):  # Instagram public: ta2kid
-            parts = [p for p, on in (("Site (brouillon)", o["site"] and c["nass"]), ("Post", o["post"]),
-                                     ("Story", o["story"])) if on]
+        site_auto = bool(SITE_PUBLISH_URL and BOT_PUBLISH_SECRET and o["site"] and c["nass"])
+        if ((ig_ready() and (o["post"] or o["story"])) or site_auto) and not c.get("published"):  # nchr public: ta2kid
+            parts = [p for p, on in (("Site", o["site"] and c["nass"]), ("Post", o["post"]), ("Story", o["story"])) if on]
             with _cards_lock:
                 c["confirm"] = True
                 c["status"] = f"⚠️ <b>Ta2kid:</b> ghaytnchr daba: {' · '.join(parts)}"
