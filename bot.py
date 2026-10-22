@@ -1624,10 +1624,22 @@ def cards_save() -> None:
         _cards["cards"] = {k: c for k, c in _cards["cards"].items() if c.get("ts", 0) >= cutoff}
         for old_day in sorted(_cards["days"])[:-14]:
             del _cards["days"][old_day]
-        CARDS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        tmp = CARDS_FILE.with_suffix(".tmp")
-        tmp.write_text(json.dumps(_cards, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(CARDS_FILE)
+        for _ in range(5):  # thread akhor y9der ybddel card f nefs l w9t: n3awdo
+            try:
+                data = json.dumps(_cards, ensure_ascii=False)
+                break
+            except RuntimeError:
+                time.sleep(0.05)
+        else:
+            log("[cards] save KO (card katbddel)")
+            return
+        try:
+            CARDS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            tmp = CARDS_FILE.with_suffix(".tmp")
+            tmp.write_text(data, encoding="utf-8")
+            tmp.replace(CARDS_FILE)
+        except OSError as e:
+            log(f"[cards] save KO {e!r}")
 
 
 def card_get(mid: int | None) -> tuple[int | None, dict | None]:
@@ -1981,7 +1993,7 @@ def ig_publish(data: bytes, caption: str = "", story: bool = False) -> str:
     else:
         params["caption"] = caption[:2200]
     container = ig_call("POST", f"{IG_USER_ID}/media", **params)["id"]
-    for _ in range(20):  # Instagram kayjib tswira w kaywjjedha (ghaliban dghya)
+    for _ in range(10):  # Instagram kayjib tswira w kaywjjedha (ghaliban dghya), max ~30 s
         status = ig_call("GET", container, fields="status_code").get("status_code")
         if status == "FINISHED":
             break
@@ -2192,6 +2204,9 @@ def on_callback(q: dict) -> None:
         tg_answer(q, "Had l khabar 9dim (ma b9ach f memoire d bot).")
         return
     ents, o = c["entries"], c["opts"]
+    if card_busy(c) and act not in ("nas", "cap", "x"):
+        tg_answer(q, "⏳ Kanchr had l khabar daba… tsenna chwiya.")
+        return
     if c.get("site_mode") and act not in ("sn", "sb", "sc", "sf", "sok"):  # bouton 9dim mn 9bel mode d site
         tg_answer(q, "Kmml tswira d site 9bel (✅ Hadi l site).")
         return
@@ -2259,9 +2274,15 @@ def on_callback(q: dict) -> None:
             tg_answer(q)
             card_show(mid, c)
             return
-        card_run(q, mid, c)
+        with _cards_lock:
+            c["busy"] = time.time()
+        _pub_pool.submit(card_run_bg, q, mid, c)
+        return
     elif act == "go" and c.get("confirm") and c["chosen"] is not None:
-        card_run(q, mid, c)
+        with _cards_lock:
+            c["busy"] = time.time()
+        _pub_pool.submit(card_run_bg, q, mid, c)
+        return
     elif act == "no" and c.get("confirm"):
         with _cards_lock:
             c["confirm"], c["status"] = False, ""
@@ -2280,38 +2301,70 @@ def on_callback(q: dict) -> None:
 
 
 def cards_loop(stop: threading.Event) -> None:
-    """Kaysm3 l boutons (getUpdates long polling) 7tta ysali run."""
+    """Kaysm3 l boutons (getUpdates long polling) 7tta ysali run. Ay ghalat kaytlogga w l loop kaykmmel."""
+    global _buttons_409
     while not stop.is_set():
         try:
-            r = tg_post("getUpdates", 40, json={"offset": _cards["offset"], "timeout": 25,
-                                                "allowed_updates": ["callback_query"]})
-        except requests.RequestException as e:
-            log(f"[boutons] getUpdates {e.__class__.__name__}")
-            stop.wait(5)
-            continue
-        if r.status_code == 409:  # webhook wla bot akhor kaysta3mel getUpdates b nefs token
-            log(f"[boutons KO] {r.text[:200]}")
-            day = datetime.now(TZ).strftime("%Y-%m-%d")
-            if _cards.get("warned") != day:
-                _cards["warned"] = day
+            try:
+                r = tg_post("getUpdates", 40, json={"offset": _cards["offset"], "timeout": 25,
+                                                    "allowed_updates": ["callback_query"]})
+            except requests.RequestException as e:
+                log(f"[boutons] getUpdates {e.__class__.__name__}")
+                stop.wait(5)
+                continue
+            if r.status_code == 409:  # webhook wla bot akhor kaysta3mel getUpdates b nefs token
+                _buttons_409 = True
+                log(f"[boutons KO] {r.text[:200]}")
+                day = datetime.now(TZ).strftime("%Y-%m-%d")
+                if _cards.get("warned") != day:
+                    _cards["warned"] = day
+                    cards_save()
+                    tg_send("⚠️ <b>Boutons ma khddaminch</b>: Telegram rfed getUpdates (409: webhook wla bot akhor "
+                            "b nefs token). Cards katsifet walakin clicks ma kaywslouch.")
+                return
+            if not r.ok:
+                log(f"[boutons] getUpdates HTTP {r.status_code} {r.text[:200]}")
+                stop.wait(5)
+                continue
+            for u in r.json().get("result", []):
+                with _cards_lock:
+                    _cards["offset"] = u["update_id"] + 1
+                q = u.get("callback_query")
+                if q:
+                    try:
+                        on_callback(q)
+                    except Exception as e:  # click wa7d ma khasshch ywa9ef l boutons
+                        log(f"[boutons KO] {e!r}")
                 cards_save()
-                tg_send("⚠️ <b>Boutons ma khddaminch</b>: Telegram rfed getUpdates (409: webhook wla bot akhor "
-                        "b nefs token). Cards katsifet walakin clicks ma kaywslouch.")
-            return
-        if not r.ok:
-            log(f"[boutons] getUpdates HTTP {r.status_code} {r.text[:200]}")
-            stop.wait(5)
-            continue
-        for u in r.json().get("result", []):
-            with _cards_lock:
-                _cards["offset"] = u["update_id"] + 1
-            q = u.get("callback_query")
-            if q:
-                try:
-                    on_callback(q)
-                except Exception as e:  # click wa7d ma khasshch ywa9ef l boutons
-                    log(f"[boutons KO] {e!r}")
-            cards_save()
+        except Exception as e:  # thread d boutons ma khasshach tmout
+            log(f"[boutons KO] loop {e!r}")
+            stop.wait(2)
+
+
+_buttons_409 = False
+_pub_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="nchr")
+BUSY_SECONDS = 300  # card "⏳ Kanchr…": ila mat l process f l wost, katrj3 t9bel clicks mor 5 d9aye9
+
+
+def card_busy(c: dict) -> bool:
+    return time.time() - c.get("busy", 0) < BUSY_SECONDS
+
+
+def card_run_bg(q: dict, mid: int, c: dict) -> None:
+    """🚀 Publier f thread bo7dha: site w Instagram kaytaklo w9t, w boutons d cards khrin khasshom yb9aw khddamin."""
+    with _cards_lock:
+        c["busy"] = time.time()
+    try:
+        card_run(q, mid, c)
+    except Exception as e:
+        log(f"[nchr KO] {e!r}")
+        with _cards_lock:
+            c["status"] = f"⚠️ Nchr t9ta3 ({esc(str(e)[:120])}): 3awd 🚀"
+        card_show(mid, c)
+    finally:
+        with _cards_lock:
+            c["busy"] = 0
+        cards_save()
 
 
 RETRY_NOTE = "⏳ Gemini ma jawebsh daba (quota): النسخة 1, caption w covers ghaywslo f had l card mn b3d."
@@ -2822,6 +2875,10 @@ def main() -> int:
     try:
         while True:
             started = time.time()
+            if buttons and not buttons.is_alive() and not _buttons_409:  # thread d boutons mat: n3awdo nlanciwha
+                log("[boutons] thread wa9fat → kan3awd nlanciha")
+                buttons = threading.Thread(target=cards_loop, args=(stop,), name="boutons", daemon=True)
+                buttons.start()
             poll_once(state, sources)
             if RUN_MINUTES <= 0 or time.time() + POLL_SECONDS > deadline:
                 break
@@ -2831,6 +2888,7 @@ def main() -> int:
         stop.set()
         if buttons:
             buttons.join(45)  # getUpdates kaytsna 7tta 25s: nkhlliw l click l akhir ykml
+        _pub_pool.shutdown(wait=True)  # nchr li bda (site / Instagram) khasso ykmmel 9bel ma ysali run
         cards_save()
     return 0
 
