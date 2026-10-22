@@ -1842,8 +1842,23 @@ def card_send(c: dict, entries: list[dict], preview: bytes | None = None, mid: i
     first_photo = None
     if mid is None:
         first = entries[0]["cover"] if entries else preview
-        r = tg_call("sendPhoto", {"chat_id": TELEGRAM_CHAT_ID, "caption": wait, "parse_mode": "HTML"},
-                    {"photo": ("saispress.jpg", first, "image/jpeg")}, timeout=60) if first else None
+        r = None
+        for attempt in range(2):  # ConnectionError: Telegram ma wslatoch: n3awdo mra (ReadTimeout la: t9der tkoun wslat)
+            try:
+                resp = tg_post("sendPhoto", 120, data={"chat_id": TELEGRAM_CHAT_ID, "caption": wait, "parse_mode": "HTML"},
+                               files={"photo": ("saispress.jpg", first, "image/jpeg")}) if first else None
+            except requests.ConnectionError as e:
+                log(f"[telegram sendPhoto KO] {e.__class__.__name__}" + (" → n3awdo" if not attempt else ""))
+                time.sleep(3)
+                continue
+            except requests.RequestException as e:
+                log(f"[telegram sendPhoto KO] {e.__class__.__name__}")
+                break
+            if resp is not None and resp.ok:
+                r = resp.json().get("result")
+            elif resp is not None:
+                log(f"[telegram sendPhoto KO] HTTP {resp.status_code} {resp.text[:200]}")
+            break
         if isinstance(r, dict):
             mid, c["media"], first_photo = r["message_id"], True, _fid(r, "photo")
         else:
@@ -2200,6 +2215,8 @@ def on_callback(q: dict) -> None:
         return
     mid, c = card_get(msg.get("message_id"))
     act = q.get("data", "")
+    log(f"[click] {act} · card {msg.get('message_id')}" + ("" if c else " (ma kaynach f cards)")
+        + (f" · busy" if c and card_busy(c) else "") + (f" · confirm" if c and c.get("confirm") else ""))
     if not c:
         tg_answer(q, "Had l khabar 9dim (ma b9ach f memoire d bot).")
         return
