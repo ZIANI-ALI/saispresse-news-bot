@@ -1763,7 +1763,7 @@ def card_new(item: dict, number: int | None, score: int | None, urgent: bool) ->
     return {"ts": time.time(), "head": card_head(item, number, score, urgent), "notes": [],
             "nass": "", "caption": "", "entries": [], "preview": None, "media": False,
             "i": 0, "chosen": None, "by": "", "status": "", "packs": [], "counted": [],
-            "opts": {"site": True, "post": True, "story": bool(urgent or (score or 0) > HIGH_SCORE)}}
+            "opts": {"site": True, "post": True, "story": True}}  # story dima (b l yed): bla bouton
 
 
 def card_note(c: dict, text_html: str) -> None:
@@ -1842,9 +1842,9 @@ def card_kb(c: dict) -> dict:
             rows.append([b("◀", "p"), b(f"{c['i'] + 1}/{len(ents)}", "x"), b("▶", "n")])
         rows.append([b("✅ Valider had l cover", "ok")])
     elif ents:
-        site = (f"🌐 Site {'✅' if o['site'] else '❌'}") if c["nass"] else "🌐 Site (bla nass)"
-        rows.append([b(site, "ts"), b(f"📸 Post {'✅' if o['post'] else '❌'}", "tp"),
-                     b(f"📱 Story 🔗 {'✅' if o['story'] else '❌'}", "tt")])
+        # 3alama l9eddam: label 9sir (Telegram kay9t3 l labels f telephone)
+        site = (f"{'✅' if o['site'] else '❌'} Site") if c["nass"] else "🚫 Site (bla nass)"
+        rows.append([b(site, "ts"), b(f"{'✅' if o['post'] else '❌'} Post", "tp")])
         if c.get("confirm"):
             rows.append([b("✅ Nchr daba", "go"), b("❌ Rj3", "no")])
         else:
