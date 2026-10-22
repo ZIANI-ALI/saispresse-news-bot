@@ -23,7 +23,8 @@ Env:
   JUDGE_BATCH          default 15 (max akhbar f call wa7d d judge)
   EDITOR_IDS           ikhtiyari: IDs Telegram (b virgule) li y9dro yclickiw 3la boutons (khawi = ay wa7d f chat)
   SITE_PUBLISH_URL, BOT_PUBLISH_SECRET  ikhtiyari: 🌐 Site kaynchr l article f saispress.com (/api/bot/publish)
-  IG_ACCESS_TOKEN, IG_USER_ID  ikhtiyari: 🚀 Publier kaynchr Post w Story f Instagram (tswira b /api/bot/media d site)
+  IG_ACCESS_TOKEN, IG_USER_ID  ikhtiyari: 🚀 Publier kaynchr Post f Instagram (tswira b /api/bot/media d site); Story katji
+                       f reply b lien d article (API ma kaysm7ch b sticker d lien: katnchr b l yed)
 """
 
 from __future__ import annotations
@@ -1721,7 +1722,7 @@ def card_kb(c: dict) -> dict:
     elif ents:
         site = (f"🌐 Site {'✅' if o['site'] else '❌'}") if c["nass"] else "🌐 Site (bla nass)"
         rows.append([b(site, "ts"), b(f"📸 Post {'✅' if o['post'] else '❌'}", "tp"),
-                     b(f"📱 Story {'✅' if o['story'] else '❌'}", "tt")])
+                     b(f"📱 Story 🔗 {'✅' if o['story'] else '❌'}", "tt")])
         if c.get("confirm"):
             rows.append([b("✅ Nchr daba", "go"), b("❌ Rj3", "no")])
         else:
@@ -2025,13 +2026,14 @@ def card_story(c: dict, e: dict, raw: Image.Image | None) -> bytes | None:
 
 
 def card_pack(mid: int, c: dict) -> str:
-    """🚀 Publier: Site w Instagram (Post, Story) ila configurés. Li ma tnchrch (machi configuré,
-    ghalat, quota) kayji f l pack (fichiers quality kamla + nsous) bach ytnchr b l yed.
+    """🚀 Publier: Site w Post d Instagram ila configurés. Story dima f l pack m3a lien d article: API ma kaysm7ch
+    b sticker d lien, donc katnchr b l yed. Li ma tnchrch (machi configuré, ghalat, quota) kayji f l pack
+    (fichiers quality kamla + nsous) bach ytnchr b l yed.
     Click tani (🔁 Pack 3awtani): fichiers w nsous bo7dhom, bla nchr 3awtani."""
     e, o = c["entries"][c["chosen"]], c["opts"]
     again = bool(c.get("published"))
     want = [p for p, on in (("Site", o["site"] and c["nass"]), ("Post", o["post"]), ("Story", o["story"])) if on]
-    manual = set(want) if again else set()
+    manual = set(want) if again else {p for p in want if p == "Story"}
     # tswira l asliya d cover (chi3arat ma 3ndhomch: site kayakhod tswira d cover akhor)
     def load(file_id):
         data = tg_download(file_id) if file_id else None
@@ -2061,7 +2063,7 @@ def card_pack(mid: int, c: dict) -> str:
             manual.add("Site")
 
     ig = c.setdefault("ig", {})
-    todo = [p for p in ("Post", "Story") if p in want and not ig.get(p)] if not again else []
+    todo = ["Post"] if "Post" in want and not ig.get("Post") and not again else []
     if todo and not ig_ready():
         manual.update(todo)
     elif todo:
@@ -2097,9 +2099,11 @@ def card_pack(mid: int, c: dict) -> str:
         card_files(mid, c, e, manual, raw, story, fit)
     auto = [p for p in want if p not in manual]
     when = datetime.now(TZ).strftime("%H:%M")
+    rest = [p for p in sorted(manual, key=want.index) if p != "Story"]
+    story_txt = " · 📱 Story + lien f reply: nchrha w zid sticker 🔗" if "Story" in manual and not again else ""
     if again or not auto:
-        return f"📦 Pack tsifet {when} ({' · '.join(sorted(manual, key=want.index))})"
-    return f"🚀 Tnchr {when}: {' · '.join(auto)}" + (f" · 📦 f l pack: {' · '.join(sorted(manual, key=want.index))}" if manual else "")
+        return f"📦 Pack tsifet {when} ({' · '.join(sorted(manual, key=want.index))})" + story_txt
+    return f"🚀 Tnchr {when}: {' · '.join(auto)}" + (f" · 📦 f l pack: {' · '.join(rest)}" if rest else "") + story_txt
 
 
 def card_files(mid: int, c: dict, e: dict, parts: set, raw: Image.Image | None, story: bytes | None,
@@ -2135,8 +2139,13 @@ def card_files(mid: int, c: dict, e: dict, parts: set, raw: Image.Image | None, 
                     files or None, timeout=90)
     if "Site" in parts:
         tg_send(c["nass"], reply_to=mid)
-    if ("Post" in parts or "Story" in parts) and c["caption"]:
+    if "Post" in parts and c["caption"]:
         tg_send(c["caption"], reply_to=mid)
+    if "Story" in parts:  # lien l sticker d Instagram (copie)
+        url = c.get("site_url")
+        tg_send(f"🔗 <b>Lien l story</b> (sticker 🔗 3la «التفاصيل»):\n{html.escape(url)}" if url
+                else "🔗 Ma kaynch lien d article (site ma tnchrch): story bla sticker, wla nchr l site 9bel.",
+                reply_to=mid)
 
 
 def card_run(q: dict, mid: int, c: dict) -> None:
@@ -2228,7 +2237,8 @@ def on_callback(q: dict) -> None:
             return
         site_auto = bool(SITE_PUBLISH_URL and BOT_PUBLISH_SECRET and o["site"] and c["nass"])
         if ((ig_ready() and (o["post"] or o["story"])) or site_auto) and not c.get("published"):  # nchr public: ta2kid
-            parts = [p for p, on in (("Site", o["site"] and c["nass"]), ("Post", o["post"]), ("Story", o["story"])) if on]
+            parts = [p for p, on in (("Site", o["site"] and c["nass"]), ("Post", o["post"]),
+                                     ("Story (b l yed + lien)", o["story"])) if on]
             with _cards_lock:
                 c["confirm"] = True
                 c["status"] = f"⚠️ <b>Ta2kid:</b> ghaytnchr daba: {' · '.join(parts)}"
