@@ -2295,6 +2295,11 @@ def card_pack(mid: int, c: dict) -> str:
     return f"🚀 Tnchr {when}: {' · '.join(auto)}" + (f" · 📦 f l pack: {' · '.join(rest)}" if rest else "") + story_txt
 
 
+def short_url(url: str) -> str:
+    """https://saispress.com/news/1808/<slug> → https://saispress.com/news/1808 (site kayredirecti l article)."""
+    return re.sub(r"^(https?://[^/]+/news/\d+)/.*$", r"\1", url)
+
+
 def card_files(mid: int, c: dict, e: dict, parts: set, raw: Image.Image | None, story: bytes | None,
                fit: bool = False) -> None:
     """Fichiers (quality kamla) w nsous l nchr b l yed."""
@@ -2330,8 +2335,8 @@ def card_files(mid: int, c: dict, e: dict, parts: set, raw: Image.Image | None, 
         tg_send(c["nass"], reply_to=mid)
     if "Post" in parts and c["caption"]:
         tg_send(c["caption"], reply_to=mid)
-    if "Story" in parts:  # lien l sticker d Instagram (copie)
-        url = c.get("site_url")
+    if "Story" in parts:  # lien l sticker d Instagram (copie): /news/<id> (slug 3arabi encodé twil bzaf l sticker)
+        url = short_url(c.get("site_url") or "")
         tg_send(f"🔗 <b>Lien l story</b> (sticker 🔗 3la «التفاصيل»):\n{html.escape(url)}" if url
                 else "🔗 Ma kaynch lien d article (site ma tnchrch): story bla sticker, wla nchr l site 9bel.",
                 reply_to=mid)
