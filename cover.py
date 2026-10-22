@@ -399,11 +399,10 @@ SLOT_Y_MAX = 1580  # ma tnzelch ktar mn hna
 
 
 def _chevrons(dr, cx: int, cy: int, size: int, fill) -> None:
-    """Jouj flèches l fo9 (b7al "swipe up") bla ma n7tajo glyph f l font."""
+    """Jouj flèches lta7t (kayweriw l cadre d sticker: l click, machi swipe up) bla ma n7tajo glyph f l font."""
     for k in (0, 1):
         y = cy + k * size * 0.62
-        dr.line([(cx - size / 2, y + size / 2), (cx, y), (cx + size / 2, y + size / 2)], fill=fill, width=6,
-                 joint="curve")
+        dr.line([(cx - size / 2, y), (cx, y + size / 2), (cx + size / 2, y)], fill=fill, width=6, joint="curve")
 
 
 def make_story(img: Image.Image, title: str, category: str, crop: Crop, stock: bool = False,
@@ -450,7 +449,7 @@ def make_story(img: Image.Image, title: str, category: str, crop: Crop, stock: b
         _text(dr, (SW // 2, top + i * lh), ln, fnt, WHITE, "ma")
     top += lh * len(lines) + 48
     im.alpha_composite(lg, ((SW - lg.width) // 2, top))
-    # blasa d sticker d lien: flèches l fo9 + cadre khawi (l user kay7ett fih sticker «التفاصيل» f Instagram)
+    # blasa d sticker d lien: flèches lta7t + cadre khawi (l user kay7ett fih sticker «التفاصيل» f Instagram)
     y0 = min(SLOT_Y_MAX, max(SLOT_Y, top + lg.height + 90))
     x0 = (SW - SLOT_W) // 2
     dr.rounded_rectangle((x0, y0, x0 + SLOT_W, y0 + SLOT_H), radius=SLOT_R, fill=NAVY2, outline=accent, width=4)
