@@ -391,8 +391,9 @@ STORY_PH = 960       # tswira l fo9 (nos d story)
 STEPS_STORY = [(3, 80, 64), (4, 68, 54), (5, 58, 48)]
 STEPS_STORY_SMALL = [(4, 56, 46), (5, 50, 42)]  # titre twil: bach yb9a blasa l sticker
 # Blasa khawya l sticker d lien (Instagram ma kaykhallich tkhbbih: kayrdo dima dakhel l cadre).
-# Pill f l wost lta7t (b7al bouton "See more"), fo9 l interface d Instagram (~250px lta7t).
-SLOT_W, SLOT_H = 560, 120
+# Cadre f l wost lta7t b chkel sticker d Instagram (coins mdwwrin chwiya) w kbir mno chwiya (sticker ≈ 228x77),
+# fo9 l interface d Instagram (~250px lta7t).
+SLOT_W, SLOT_H, SLOT_R = 300, 100, 26
 SLOT_Y = 1560      # top d pill (ila l contenu kaykhalli lih blasa)
 SLOT_Y_MAX = 1600  # ma tnzelch ktar mn hna
 
@@ -449,10 +450,10 @@ def make_story(img: Image.Image, title: str, category: str, crop: Crop, stock: b
         _text(dr, (SW // 2, top + i * lh), ln, fnt, WHITE, "ma")
     top += lh * len(lines) + 48
     im.alpha_composite(lg, ((SW - lg.width) // 2, top))
-    # blasa d sticker d lien: flèches l fo9 + pill khawya (l user kay7ett fiha sticker «التفاصيل» f Instagram)
+    # blasa d sticker d lien: flèches l fo9 + cadre khawi (l user kay7ett fih sticker «التفاصيل» f Instagram)
     y0 = min(SLOT_Y_MAX, max(SLOT_Y, top + lg.height + 90))
     x0 = (SW - SLOT_W) // 2
-    dr.rounded_rectangle((x0, y0, x0 + SLOT_W, y0 + SLOT_H), radius=SLOT_H // 2, fill=NAVY2, outline=accent, width=4)
+    dr.rounded_rectangle((x0, y0, x0 + SLOT_W, y0 + SLOT_H), radius=SLOT_R, fill=NAVY2, outline=accent, width=4)
     if y0 - 58 >= top + lg.height + 16:  # titre twil: bla flèches bach ma ylsa9ouch f logo
         _chevrons(dr, SW // 2, y0 - 58, 26, accent)
     return _jpeg(im)
