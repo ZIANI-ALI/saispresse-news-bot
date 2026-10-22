@@ -1717,6 +1717,9 @@ def cards_save() -> None:
         _cards["cards"] = {k: c for k, c in _cards["cards"].items() if c.get("ts", 0) >= cutoff}
         for old_day in sorted(_cards["days"])[:-14]:
             del _cards["days"][old_day]
+        mq = _cards.get("maqal", {})
+        for k in [k for k, j in mq.items() if j.get("ts", 0) < time.time() - MAQAL_TTL]:
+            del mq[k]
         pub = _cards.get("pub_imgs", {})
         for h in [h for h, ts in pub.items() if ts < time.time() - PUB_IMG_DAYS * 86400]:
             del pub[h]
@@ -1752,11 +1755,12 @@ def card_get(mid: int | None) -> tuple[int | None, dict | None]:
 def card_head(item: dict, number: int | None, score: int | None, urgent: bool) -> str:
     when = datetime.fromtimestamp(item["ts"], TZ).strftime("%H:%M")
     tags = ["🚨 <b>عاجل</b>"] if urgent else []
+    tags += ["✍️ <b>مقال</b>"] if item.get("manual") else []
     tags += [f"🔴 <b>خبر {number}</b>"] if number else []
     tags += [f"⭐ {score}/10"] if score else []
     tags += [esc(item["source"]), when]
-    return (f"{' · '.join(tags)}\n\n<b>{esc(item['title'][:300])}</b>\n"
-            f"<a href=\"{html.escape(item['link'])}\">فتح الخبر</a>")
+    return (f"{' · '.join(tags)}\n\n<b>{esc(item['title'][:300])}</b>"
+            + (f"\n<a href=\"{html.escape(item['link'])}\">فتح الخبر</a>" if item["link"] else ""))
 
 
 def card_new(item: dict, number: int | None, score: int | None, urgent: bool) -> dict:
@@ -2497,7 +2501,7 @@ def cards_loop(stop: threading.Event) -> None:
         try:
             try:
                 r = tg_post("getUpdates", 40, json={"offset": _cards["offset"], "timeout": 25,
-                                                    "allowed_updates": ["callback_query"]})
+                                                    "allowed_updates": ["callback_query", "message"]})
             except requests.RequestException as e:
                 log(f"[boutons] getUpdates {e.__class__.__name__}")
                 stop.wait(5)
@@ -2525,6 +2529,11 @@ def cards_loop(stop: threading.Event) -> None:
                         on_callback(q)
                     except Exception as e:  # click wa7d ma khasshch ywa9ef l boutons
                         log(f"[boutons KO] {e!r}")
+                if u.get("message"):
+                    try:
+                        on_message(u["message"])
+                    except Exception as e:
+                        log(f"[maqal KO] {e!r}")
                 cards_save()
         except Exception as e:  # thread d boutons ma khasshach tmout
             log(f"[boutons KO] loop {e!r}")
@@ -2583,10 +2592,12 @@ RETRY_NOTE = "⏳ Gemini ma jawebsh daba (quota): النسخة 1, caption w cove
 
 def process(item: dict, number: int, score: int, urgent: bool = False,
             data: tuple[str, list[str]] | None = None, followup: bool = False,
-            retry: list | None = None, card_id: int | None = None) -> int | None:
-    """Kaysifet card d l khabar (followup: kaykml card li tsiftat b l 3onwan). Kayrja3 ra9m d card."""
+            retry: list | None = None, card_id: int | None = None,
+            image: Image.Image | None = None) -> int | None:
+    """Kaysifet card d l khabar (followup: kaykml card li tsiftat b l 3onwan). Kayrja3 ra9m d card.
+    image: tswira d source mn bra (maqal: tswira li sift f Telegram)."""
     text, image_urls = data or (("", []) if NO_AI else article_data(item))
-    item["strong"] = strong_news(item, score, urgent, text)
+    item["strong"] = bool(item.get("manual")) or strong_news(item, score, urgent, text)
     if followup and not NO_AI and len(text) >= MIN_TEXT_FOR_AI:
         # cover w tsawer tsiftu deja m3a l 3onwan: daba ghir النسخة 1 w caption f nefs l card
         mid, c = card_get(card_id)
@@ -2608,7 +2619,7 @@ def process(item: dict, number: int, score: int, urgent: bool = False,
         card_show(mid, c)
         tg_send("📄 <b>النص الكامل وصل</b>: النسخة 1 w Caption kaynin daba f boutons d l khabar.", reply_to=mid)
         return mid
-    img = best_image(image_urls) if image_urls else None
+    img = image or (best_image(image_urls) if image_urls else None)
     small, upscaled = (img.size if img else None), False
     if img:
         img, upscaled = enhance(img)
@@ -2645,6 +2656,123 @@ def process(item: dict, number: int, score: int, urgent: bool = False,
         return mid
     card_texts(c, item, out)
     return card_send(c, build_covers(item, out, img, small, upscaled, urgent, pics), preview)
+
+
+# ---------------------------------------------------------------- maqal (b l yed mn Telegram)
+#
+# /maqal + nass (wla lien) f group → bot kayjawb "sift tswira b reply" → reply b tswira → card kamla
+# (tswira dyalk = source + 3 tsawer 7orra, النسخة 1, caption, Site / Post / Story). Jobs f _cards["maqal"]
+# (b ra9m d message d bot): ila t9ta3 run f l wost, job li fih tswira kaykmmel f run jay.
+
+MAQAL_RE = re.compile(r"^/maqal(?:@\w+)?(?:\s+(.*))?$", re.S | re.I)
+MAQAL_TTL = 86400
+MAQAL_HELP = ("✍️ <b>/maqal</b> + nass d l maqal (wla lien dyalo) f nefs message, "
+              "mn b3d sift tswira <b>b reply</b> 3la jawab d bot.")
+
+
+def maqal_from_link(url: str) -> tuple[str, str]:
+    """(titre, nass) d maqal mn lien."""
+    r = fetch(url)
+    r.raise_for_status()
+    text = trafilatura.extract(r.text, include_comments=False, include_tables=False) or ""
+    m = re.search(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)', r.text) \
+        or re.search(r"<title[^>]*>([^<]+)</title>", r.text)
+    return (html.unescape(m.group(1)).strip() if m else ""), text.strip()
+
+
+def on_message(m: dict) -> None:
+    who = m.get("from") or {}
+    if str((m.get("chat") or {}).get("id")) != str(TELEGRAM_CHAT_ID) or (EDITOR_IDS and who.get("id") not in EDITOR_IDS):
+        return
+    mid = m.get("message_id")
+    cmd = MAQAL_RE.match((m.get("text") or "").strip())
+    if cmd:
+        body = (cmd.group(1) or "").strip()
+        log(f"[maqal] /maqal mn {who.get('id')} ({len(body)} 7arf)")
+        link, title = "", ""
+        if re.fullmatch(r"https?://\S+", body):
+            link = body
+            try:
+                title, body = maqal_from_link(link)
+            except requests.RequestException as e:
+                tg_send(f"⚠️ Ma 9dertch n9ra l lien ({e.__class__.__name__}). Sift nass d l maqal m3a /maqal.",
+                        reply_to=mid)
+                return
+        if len(body) < MIN_TEXT_FOR_AI:
+            tg_send(f"⚠️ Nass 9sir bzaf ({len(body)} 7arf, khass {MIN_TEXT_FOR_AI}+).\n{MAQAL_HELP}", reply_to=mid)
+            return
+        title = title or body.split("\n", 1)[0].strip()[:200]
+        ask = tg_send("📷 Sift tswira dyal had l maqal <b>b reply 3la had message</b>.", reply_to=mid)
+        if ask:
+            with _cards_lock:
+                _cards.setdefault("maqal", {})[str(ask)] = {
+                    "title": title, "text": body[:MAX_TEXT_FOR_AI], "link": link, "ts": time.time(), "photo": None}
+            cards_save()
+        return
+    reply = (m.get("reply_to_message") or {}).get("message_id")
+    with _cards_lock:
+        job = _cards.get("maqal", {}).get(str(reply))
+    if not job:
+        return
+    doc = m.get("document") or {}
+    photo = (m["photo"][-1]["file_id"] if m.get("photo")
+             else doc.get("file_id") if str(doc.get("mime_type", "")).startswith("image/") else None)
+    if not photo:
+        tg_send("📷 Khassni <b>tswira</b> (photo) b reply 3la message d bot.", reply_to=mid)
+        return
+    with _cards_lock:
+        if job.get("photo"):
+            started = True
+        else:
+            started = False
+            job["photo"], job["photo_mid"] = photo, mid
+    if started:
+        tg_send("⏳ Had l maqal deja kaytwjjed.", reply_to=mid)
+        return
+    cards_save()
+    log(f"[maqal] tswira wslat → card ({job['title'][:60]})")
+    tg_send("⏳ Kanwjjed l card (1-2 d9aye9)…", reply_to=mid)
+    threading.Thread(target=maqal_run, args=(str(reply),), name="maqal", daemon=True).start()
+
+
+def maqal_run(key: str) -> None:
+    """Card d maqal f thread bo7dha (Gemini w tsawer kaytaklo w9t, boutons khasshom yb9aw khddamin)."""
+    with _cards_lock:
+        job = _cards.get("maqal", {}).get(key)
+    if not job or not job.get("photo"):
+        return
+    try:
+        data = tg_download(job["photo"])
+        img = Image.open(BytesIO(data)).convert("RGB") if data else None
+        if not img:
+            raise ValueError("tswira ma tnzlatch mn Telegram")
+        domain = urlparse(job["link"]).netloc.removeprefix("www.")
+        item = {"title": job["title"], "link": job["link"], "source": domain or "Saispress", "credit": "",
+                "ts": time.time(), "hints": {}, "manual": True}
+        mid = process(item, None, None, data=(job["text"], []), image=img)
+        log(f"[maqal] card {mid}: {job['title'][:60]}")
+        if not mid:
+            raise ValueError("card ma tsiftatch")
+    except Exception as e:
+        log(f"[maqal KO] {e!r}")
+        tg_send(f"⚠️ Card d l maqal ma tsawbatch: {esc(str(e)[:200])}. Sift tswira 3awtani b reply.",
+                reply_to=job.get("photo_mid"))
+        with _cards_lock:
+            job["photo"] = None
+        cards_save()
+        return
+    with _cards_lock:
+        _cards.get("maqal", {}).pop(key, None)
+    cards_save()
+
+
+def maqal_resume() -> None:
+    """Jobs li fihom tswira walakin run t9ta3 9bel card: kaykmmlo daba."""
+    with _cards_lock:
+        keys = [k for k, j in _cards.get("maqal", {}).items() if j.get("photo")]
+    for k in keys:
+        log(f"[maqal] kankmmel job {k} (run 9dim t9ta3)")
+        threading.Thread(target=maqal_run, args=(k,), name="maqal", daemon=True).start()
 
 
 RETRY_HOURS = 12
@@ -3107,6 +3235,7 @@ def main() -> int:
     if not DRY_RUN:
         buttons = threading.Thread(target=cards_loop, args=(stop,), name="boutons", daemon=True)
         buttons.start()
+        maqal_resume()
     deadline = time.time() + RUN_MINUTES * 60
     try:
         while True:
