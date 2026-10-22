@@ -391,11 +391,11 @@ STORY_PH = 960       # tswira l fo9 (nos d story)
 STEPS_STORY = [(3, 80, 64), (4, 68, 54), (5, 58, 48)]
 STEPS_STORY_SMALL = [(4, 56, 46), (5, 50, 42)]  # titre twil: bach yb9a blasa l sticker
 # Blasa khawya l sticker d lien (Instagram ma kaykhallich tkhbbih: kayrdo dima dakhel l cadre).
-# Cadre f l wost lta7t b chkel sticker d Instagram (coins mdwwrin chwiya) w kbir mno chwiya (sticker ≈ 228x77),
-# fo9 l interface d Instagram (~250px lta7t).
-SLOT_W, SLOT_H, SLOT_R = 300, 100, 26
-SLOT_Y = 1560      # top d pill (ila l contenu kaykhalli lih blasa)
-SLOT_Y_MAX = 1600  # ma tnzelch ktar mn hna
+# Cadre f l wost lta7t b nefs proportion d sticker d Instagram (≈ 228x77 = 2.96:1, coins ≈ 23%):
+# l user kaykbber sticker 7tta y3mmer l cadre. Fo9 l interface d Instagram (~250px lta7t).
+SLOT_W, SLOT_H, SLOT_R = 380, 128, 30
+SLOT_Y = 1550      # top d cadre (ila l contenu kaykhalli lih blasa)
+SLOT_Y_MAX = 1580  # ma tnzelch ktar mn hna
 
 
 def _chevrons(dr, cx: int, cy: int, size: int, fill) -> None:
