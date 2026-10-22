@@ -5,7 +5,7 @@ Jouj d les formes:
   D: tswira 3amra l post kamel, cadre gold, titre f boîte navy (ghir ila tswira twila w HD).
   match: natija d match: tswira l fo9, carte d score (l fer9an, l ahdaf, li sjlou), titre sghir.
          Ila l9ina chi3arat: cover d chi3arat f blast tsawer 7orra (make_badges_post).
-  story: 1080x1920 (make_story): tswira l fo9, panel navy, titre f l wost, logo, "التفاصيل".
+  story: 1080x1920 (make_story): tswira l fo9, panel navy, titre f l wost, logo, blasa khawya l sticker d lien.
 """
 import re
 from io import BytesIO
@@ -389,6 +389,12 @@ def make_post(img: Image.Image, title: str, category: str, crop: Crop,
 SW, SH = 1080, 1920  # story 9:16
 STORY_PH = 960       # tswira l fo9 (nos d story)
 STEPS_STORY = [(3, 80, 64), (4, 68, 54), (5, 58, 48)]
+STEPS_STORY_SMALL = [(4, 56, 46), (5, 50, 42)]  # titre twil: bach yb9a blasa l sticker
+# Blasa khawya l sticker d lien (Instagram ma kaykhallich tkhbbih: kayrdo dima dakhel l cadre).
+# Pill f l wost lta7t (b7al bouton "See more"), fo9 l interface d Instagram (~250px lta7t).
+SLOT_W, SLOT_H = 560, 120
+SLOT_Y = 1560      # top d pill (ila l contenu kaykhalli lih blasa)
+SLOT_Y_MAX = 1600  # ma tnzelch ktar mn hna
 
 
 def _chevrons(dr, cx: int, cy: int, size: int, fill) -> None:
@@ -401,7 +407,7 @@ def _chevrons(dr, cx: int, cy: int, size: int, fill) -> None:
 
 def make_story(img: Image.Image, title: str, category: str, crop: Crop, stock: bool = False,
                urgent: bool = False) -> bytes:
-    """Story 1080x1920: tswira l fo9, panel navy ta7tha: catégorie, titre f l wost, logo, "التفاصيل" (l lien).
+    """Story 1080x1920: tswira l fo9, panel navy ta7tha: catégorie, titre f l wost, logo, blasa khawya l sticker d lien.
     L contenu kollo bin safe zones d Instagram (fo9 ~250px w ta7t ~250px m3amrin b l interface)."""
     title = clean_title(title)
     category = clean_title(category)[:20]
@@ -421,14 +427,18 @@ def make_story(img: Image.Image, title: str, category: str, crop: Crop, stock: b
     if stock:
         _text(dr, (50, STORY_PH - 40), "صورة تعبيرية", _font("Tajawal-Bold.ttf", 28), WHITE, "lm")
 
-    fnt, lines = _fit_title(title, "Tajawal-Black.ttf", 920, STEPS_STORY)
-    lh = int(fnt.size * 1.22)
     pill_fnt = _font("Tajawal-Black.ttf", 44) if urgent else _font("Tajawal-Bold.ttf", 36)
     pill_text = "عاجل" if urgent else category
     pill_h = (sum(pill_fnt.getmetrics()) + 10) if pill_text else 0
-    lg = _logo(120)
-    block = (pill_h + 36 if pill_text else 0) + lh * len(lines) + 52 + lg.height
-    top = STORY_PH + 8 + max(44, (1570 - STORY_PH - 8 - block) // 2)
+    lg = _logo(110)
+    room = SLOT_Y - 90 - (STORY_PH + 8)  # contenu bin tswira w flèches d sticker
+    for steps in (STEPS_STORY, STEPS_STORY_SMALL):
+        fnt, lines = _fit_title(title, "Tajawal-Black.ttf", 920, steps)
+        lh = int(fnt.size * 1.22)
+        block = (pill_h + 36 if pill_text else 0) + lh * len(lines) + 48 + lg.height
+        if block + 2 * 36 <= room:
+            break
+    top = STORY_PH + 8 + max(36, (room - block) // 2)
     if pill_text:
         tw = _width(pill_text, pill_fnt)
         padx = 30 if urgent else 24
@@ -437,15 +447,14 @@ def make_story(img: Image.Image, title: str, category: str, crop: Crop, stock: b
         top += pill_h + 36
     for i, ln in enumerate(lines):
         _text(dr, (SW // 2, top + i * lh), ln, fnt, WHITE, "ma")
-    top += lh * len(lines) + 52
+    top += lh * len(lines) + 48
     im.alpha_composite(lg, ((SW - lg.width) // 2, top))
-    y = min(1690, max(1630, top + lg.height + 60))
-    # "التفاصيل": blasa d sticker d lien (ila tzad f Instagram)
-    more = _font("Tajawal-Bold.ttf", 38)
-    tw = _width("التفاصيل", more)
-    cx = SW // 2 + 26
-    _text(dr, (cx + tw / 2, y), "التفاصيل", more, WHITE, "rm")
-    _chevrons(dr, round(cx - tw / 2 - 34), y - 20, 26, accent)
+    # blasa d sticker d lien: flèches l fo9 + pill khawya (l user kay7ett fiha sticker «التفاصيل» f Instagram)
+    y0 = min(SLOT_Y_MAX, max(SLOT_Y, top + lg.height + 90))
+    x0 = (SW - SLOT_W) // 2
+    dr.rounded_rectangle((x0, y0, x0 + SLOT_W, y0 + SLOT_H), radius=SLOT_H // 2, fill=NAVY2, outline=accent, width=4)
+    if y0 - 58 >= top + lg.height + 16:  # titre twil: bla flèches bach ma ylsa9ouch f logo
+        _chevrons(dr, SW // 2, y0 - 58, 26, accent)
     return _jpeg(im)
 
 

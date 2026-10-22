@@ -2352,7 +2352,7 @@ def card_files(mid: int, c: dict, e: dict, parts: set, raw: Image.Image | None, 
         tg_send(c["caption"], reply_to=mid)
     if "Story" in parts:  # lien l sticker d Instagram (copie): /news/<id> (slug 3arabi encodé twil bzaf l sticker)
         url = short_url(c.get("site_url") or "")
-        tg_send(f"🔗 <b>Lien l story</b> (sticker 🔗 3la «التفاصيل»):\n{html.escape(url)}" if url
+        tg_send(f"🔗 <b>Lien l story</b> (sticker 🔗 f l blasa l khawya lta7t, ktba «التفاصيل»):\n{html.escape(url)}" if url
                 else "🔗 Ma kaynch lien d article (site ma tnchrch): story bla sticker, wla nchr l site 9bel.",
                 reply_to=mid)
 
