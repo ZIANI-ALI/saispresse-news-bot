@@ -21,6 +21,7 @@ Env:
   HIGH_SCORE           default 8 (men had score l fo9 kolchi kaytsifet, bla 7add)
   JUDGE_WAIT           default 300 (s: akhbar jdad kaytjm3o had l mudda w kaytjudgaw f call Gemini wa7d)
   JUDGE_BATCH          default 15 (max akhbar f call wa7d d judge)
+  EDITOR_IDS           ikhtiyari: IDs Telegram (b virgule) li y9dro yclickiw 3la boutons (khawi = ay wa7d f chat)
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ import os
 import re
 import signal
 import sys
+import threading
 import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor
@@ -63,6 +65,7 @@ PIXABAY_KEY = os.environ.get("PIXABAY_API_KEY", "")
 SERPER_KEY = os.environ.get("SERPER_API_KEY", "")
 RELAY_URL = os.environ.get("RELAY_URL", "").rstrip("/")
 RELAY_KEY = os.environ.get("RELAY_KEY", "")
+EDITOR_IDS = {int(x) for x in re.findall(r"-?\d+", os.environ.get("EDITOR_IDS", ""))}
 FREE_IMAGES = bool(PEXELS_KEY or PIXABAY_KEY)
 GEMINI_MODELS = [m.strip() for m in os.environ.get("GEMINI_MODELS", "").split(",") if m.strip()]
 
@@ -338,11 +341,8 @@ def article_data(item: dict) -> tuple[str, list[str]]:
 # ---------------------------------------------------------------- tsawer
 
 INSTA_SIZE = (1080, 1350)  # portrait 4:5
-FORMATS = [  # (smiya d l fichier, l 9yas)
-    ("insta-portrait-4x5", INSTA_SIZE),
-    ("carre-1x1", (1080, 1080)),
-    ("site-16x9", (1200, 675)),
-]
+SITE_SIZE = (1200, 675)    # site 16:9
+STORY_SIZE = (1080, 1920)  # story 9:16
 _WP_SIZE = re.compile(r"-\d{2,4}x\d{2,4}(?=\.(?:jpe?g|png|webp)(?:\?|$))", re.I)
 # CDN li kay3tiw nfs tswira b 9yas akbar (RSS kay3ti 1200x630 / 1024x576)
 _HD_URLS = [
@@ -983,8 +983,20 @@ def insta_image(img: Image.Image) -> bytes:
     return render(img, INSTA_SIZE)
 
 
-def all_formats(img: Image.Image) -> list[tuple[str, bytes]]:
-    return [(f"{name}.jpg", render(img, size)) for name, size in FORMATS]
+def story_image(post: bytes) -> bytes:
+    """Story 9:16 mn cover 4:5: cover f l wost (bin safe zones d Instagram) fo9 nefs l cover mdbbla w mghmma."""
+    im = Image.open(BytesIO(post)).convert("RGB")
+    w, h = STORY_SIZE
+    scale = max(w / im.width, h / im.height)
+    bg = im.resize((round(im.width * scale), round(im.height * scale)), Image.LANCZOS)
+    left, top = (bg.width - w) // 2, (bg.height - h) // 2
+    bg = bg.crop((left, top, left + w, top + h)).filter(ImageFilter.GaussianBlur(40))
+    bg = Image.eval(bg, lambda v: round(v * 0.45))
+    fg = im.resize((w, round(im.height * w / im.width)), Image.LANCZOS)
+    bg.paste(fg, (0, (h - fg.height) // 2))
+    out = BytesIO()
+    bg.save(out, "JPEG", quality=95, optimize=True, subsampling=0)
+    return out.getvalue()
 
 
 # ---------------------------------------------------------------- gemini
@@ -1485,10 +1497,20 @@ def tg_send(text_html: str, reply_to: int | None = None, preview: bool = False) 
     return msg_id
 
 
+_tls = threading.local()
+
+
+def tg_http() -> requests.Session:
+    """Session l kol thread (thread d boutons w l bot kaykhdmo f nefs l w9t)."""
+    if not hasattr(_tls, "s"):
+        _tls.s = requests.Session()
+    return _tls.s
+
+
 def tg_post(method: str, timeout: int, **kw) -> requests.Response:
     """POST l Telegram; ila 429 (bzaf d messages f d9i9a), kantsnaw retry_after w n3awdo."""
     for _ in range(5):
-        r = http.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/{method}", timeout=timeout, **kw)
+        r = tg_http().post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/{method}", timeout=timeout, **kw)
         if r.status_code != 429:
             return r
         try:
@@ -1500,138 +1522,490 @@ def tg_post(method: str, timeout: int, **kw) -> requests.Response:
     return r
 
 
-def tg_file(method: str, field: str, data_bytes: bytes, caption_html: str = "",
-            reply_to: int | None = None) -> int | None:
-    """sendPhoto (preview, Telegram kaydghetha) wla sendDocument (quality kamla)."""
-    if DRY_RUN:
-        print("-" * 60 + f"\n[{method} {len(data_bytes) // 1024} KB]\n" + caption_html + "\n", flush=True)
-        return -1
-    data = {"chat_id": TELEGRAM_CHAT_ID, "parse_mode": "HTML"}
-    if caption_html:
-        data["caption"] = caption_html[:1024]
-    if reply_to:
-        data["reply_parameters"] = json.dumps({"message_id": reply_to, "allow_sending_without_reply": True})
-    try:
-        r = tg_post(method, 60, data=data, files={field: ("saispresse-insta.jpg", data_bytes, "image/jpeg")})
-        if r.ok:
-            return r.json()["result"]["message_id"]
-        log(f"[telegram {method} KO] HTTP {r.status_code} {r.text[:200]}")
-    except requests.RequestException as e:
-        log(f"[telegram {method} KO] {e.__class__.__name__}")
-    return None
-
-
-def tg_album(files: list[tuple[str, bytes]], caption_html: str, reply_to: int | None = None) -> None:
-    """Kaysifet bzaf d fichiers (documents, quality kamla) f message we7da."""
-    if DRY_RUN:
-        sizes = ", ".join(f"{n} {len(b) // 1024}KB" for n, b in files)
-        print("-" * 60 + f"\n[ALBUM {sizes}]\n" + caption_html + "\n", flush=True)
-        return
-    media = [{"type": "document", "media": f"attach://f{i}"} for i in range(len(files))]
-    media[-1].update({"caption": caption_html[:1024], "parse_mode": "HTML"})
-    data = {"chat_id": TELEGRAM_CHAT_ID, "media": json.dumps(media)}
-    if reply_to:
-        data["reply_parameters"] = json.dumps({"message_id": reply_to, "allow_sending_without_reply": True})
-    try:
-        r = tg_post("sendMediaGroup", 90, data=data,
-                    files={f"f{i}": (n, b, "image/jpeg") for i, (n, b) in enumerate(files)})
-        if not r.ok:
-            log(f"[telegram album KO] HTTP {r.status_code} {r.text[:200]}")
-    except requests.RequestException as e:
-        log(f"[telegram album KO] {e.__class__.__name__}")
-
-
 def esc(s: str) -> str:
     return html.escape(s, quote=False)
 
 
+def tg_call(method: str, data: dict, files: dict | None = None, timeout: int = 30):
+    """Kayrja3 result d Telegram (dict / True) wla None. "message is not modified" = ok."""
+    try:
+        if files:
+            form = {k: json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v
+                    for k, v in data.items() if v is not None}
+            r = tg_post(method, timeout, data=form, files=files)
+        else:
+            r = tg_post(method, timeout, json={k: v for k, v in data.items() if v is not None})
+    except requests.RequestException as e:
+        log(f"[telegram {method} KO] {e.__class__.__name__}")
+        return None
+    if r.ok:
+        return r.json().get("result")
+    if "message is not modified" in r.text:
+        return True
+    log(f"[telegram {method} KO] HTTP {r.status_code} {r.text[:200]}")
+    return None
+
+
+def tg_download(file_id: str) -> bytes | None:
+    f = tg_call("getFile", {"file_id": file_id})
+    if not isinstance(f, dict) or not f.get("file_path"):
+        return None
+    try:
+        r = tg_http().get(f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{f['file_path']}", timeout=60)
+        return r.content if r.ok else None
+    except requests.RequestException as e:
+        log(f"[telegram getFile KO] {e.__class__.__name__}")
+        return None
+
+
+# ---------------------------------------------------------------- cards (message wa7d l kol khabar)
+#
+# Kol khabar = message wa7d (card): cover kbira, ◀ ▶ bach tbddel binathom, ✅ bach tkhtar, mn b3d
+# toggles Site / Post / Story w 📦 Pack final (cover 4:5 + site 16:9 + story 9:16 + nsous jahzin).
+# Covers kaytkhzno f Telegram b file_id: kantrf3ouhom f nefs l card b editMessageMedia (photo l
+# preview, document l quality kamla), donc bla messages zaydin w bla tsawer f state.
+# Boutons kayjiw b getUpdates f thread bo7dha (cards_loop), w cards kaytkhzno f state/cards.json.
+
+CARDS_FILE = STATE_FILE.with_name("cards.json")
+CARD_TTL = 3 * 86400
+_cards_lock = threading.RLock()
+_cards: dict = {"offset": 0, "cards": {}, "days": {}}
+
+
+def cards_load() -> None:
+    global _cards
+    try:
+        _cards = {**_cards, **json.loads(CARDS_FILE.read_text(encoding="utf-8"))}
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
+
+def cards_save() -> None:
+    with _cards_lock:
+        cutoff = time.time() - CARD_TTL
+        _cards["cards"] = {k: c for k, c in _cards["cards"].items() if c.get("ts", 0) >= cutoff}
+        for old_day in sorted(_cards["days"])[:-14]:
+            del _cards["days"][old_day]
+        CARDS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = CARDS_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(_cards, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(CARDS_FILE)
+
+
+def card_get(mid: int | None) -> tuple[int | None, dict | None]:
+    """Card b ra9m d message (w ila tbeddel message: "moved")."""
+    with _cards_lock:
+        for _ in range(5):
+            c = _cards["cards"].get(str(mid)) if mid else None
+            if not c or "moved" not in c:
+                return (mid if c else None), c
+            mid = c["moved"]
+    return None, None
+
+
+def card_head(item: dict, number: int | None, score: int | None, urgent: bool) -> str:
+    when = datetime.fromtimestamp(item["ts"], TZ).strftime("%H:%M")
+    tags = ["🚨 <b>عاجل</b>"] if urgent else []
+    tags += [f"🔴 <b>خبر {number}</b>"] if number else []
+    tags += [f"⭐ {score}/10"] if score else []
+    tags += [esc(item["source"]), when]
+    return (f"{' · '.join(tags)}\n\n<b>{esc(item['title'][:300])}</b>\n"
+            f"<a href=\"{html.escape(item['link'])}\">فتح الخبر</a>")
+
+
+def card_new(item: dict, number: int | None, score: int | None, urgent: bool) -> dict:
+    return {"ts": time.time(), "head": card_head(item, number, score, urgent), "notes": [],
+            "nass": "", "caption": "", "entries": [], "preview": None, "media": False,
+            "i": 0, "chosen": None, "by": "", "status": "", "packs": [], "counted": [],
+            "opts": {"site": True, "post": True, "story": bool(urgent or (score or 0) > HIGH_SCORE)}}
+
+
+def card_note(c: dict, text_html: str) -> None:
+    if text_html and text_html not in c["notes"]:
+        c["notes"].append(text_html)
+
+
+def card_texts(c: dict, item: dict, out: dict) -> None:
+    """النسخة 1 (l site) w caption d Instagram (copie wajda, bla header w bla titre)."""
+    credit = f"\n\n{esc(item['credit'])}" if item.get("credit") else ""
+    if out.get("article"):
+        lite = lite_note(out)
+        c["nass"] = (f"📰 <b>النسخة 1 (كاملة)</b>{' · ' + lite if lite else ''}\n\n"
+                     f"<b>{esc(out['title'].strip())}</b>\n\n{esc(out['article'].strip())}{credit}")
+    if out.get("instagram"):
+        c["caption"] = f"{esc(out['instagram'].strip())}{credit}"
+    card_note(c, lite_note(out))
+
+
+def _visible(text_html: str) -> int:
+    return len(html.unescape(re.sub(r"<[^>]+>", "", text_html)))
+
+
+def card_caption(c: dict) -> str:
+    lines = [c["head"], ""]
+    ents = c["entries"]
+    if ents:
+        k = c["chosen"] if c["chosen"] is not None else c["i"]
+        e = ents[k]
+        lines.append(f"🖼 Cover {k + 1}/{len(ents)} · forme {esc(e['kind'])} · tswira: {esc(e['origin'])}")
+        lines.append("✅ Tswira 7orra, msmou7 tnchrha" if e["free"]
+                     else "⚠️ Tswira 3endha copyright (référence)")
+        if e.get("credit"):
+            lines.append(esc(e["credit"][:200]))
+    elif c.get("preview"):
+        lines.append("🖼 Tswira d l source (mazal bla cover)")
+    notes, status = list(c["notes"]), [c["status"]] if c.get("status") else []
+    limit = 1024 if c["media"] else 4096
+    while True:
+        text = "\n".join(lines + notes + status)
+        if _visible(text) <= limit or not notes:
+            return text
+        notes.pop()
+
+
+def card_kb(c: dict) -> dict:
+    def b(text: str, data: str) -> dict:
+        return {"text": text, "callback_data": data}
+
+    rows, ents, o = [], c["entries"], c["opts"]
+    if ents and c["chosen"] is None:
+        if len(ents) > 1:
+            rows.append([b("◀", "p"), b(f"{c['i'] + 1}/{len(ents)}", "x"), b("▶", "n")])
+        rows.append([b("✅ Valider had l cover", "ok")])
+    elif ents:
+        site = (f"🌐 Site {'✅' if o['site'] else '❌'}") if c["nass"] else "🌐 Site (bla nass)"
+        rows.append([b(site, "ts"), b(f"📸 Post {'✅' if o['post'] else '❌'}", "tp"),
+                     b(f"📱 Story {'✅' if o['story'] else '❌'}", "tt")])
+        rows.append([b("🔁 Pack 3awtani" if c["packs"] else "📦 Pack final", "pub")])
+        rows.append([b("↩️ Bddel cover", "bk")])
+    texts = ([b("📄 النسخة 1", "nas")] if c["nass"] else []) + ([b("📝 Caption", "cap")] if c["caption"] else [])
+    if texts:
+        rows.append(texts)
+    return {"inline_keyboard": rows}
+
+
+def _fid(msg, kind: str) -> str | None:
+    if not isinstance(msg, dict):
+        return None
+    if kind == "photo":
+        return (msg.get("photo") or [{}])[-1].get("file_id")
+    return (msg.get("document") or {}).get("file_id")
+
+
+def card_media(mid: int, kind: str, src, caption: str, kb: dict | None = None, name: str = "saispress.jpg"):
+    """Kaybddel tswira d card: src = file_id (str) wla bytes (upload)."""
+    media = {"type": kind, "media": src if isinstance(src, str) else "attach://f",
+             "caption": caption, "parse_mode": "HTML"}
+    data = {"chat_id": TELEGRAM_CHAT_ID, "message_id": mid, "media": media, "reply_markup": kb}
+    files = None if isinstance(src, str) else {"f": (name, src, "image/jpeg")}
+    return tg_call("editMessageMedia", data, files, timeout=90)
+
+
+def card_show(mid: int, c: dict, media_change: bool = False) -> None:
+    cap, kb = card_caption(c), card_kb(c)
+    if DRY_RUN:
+        print("-" * 60 + f"\n[CARD {mid}]\n{cap}\n{[[x['text'] for x in r] for r in kb['inline_keyboard']]}\n", flush=True)
+        return
+    if not c["media"]:
+        tg_call("editMessageText", {"chat_id": TELEGRAM_CHAT_ID, "message_id": mid, "text": cap,
+                                    "parse_mode": "HTML", "reply_markup": kb,
+                                    "link_preview_options": {"is_disabled": True}})
+        return
+    ents = c["entries"]
+    photo = ents[c["chosen"] if c["chosen"] is not None else c["i"]]["photo"] if ents else c.get("preview")
+    if media_change and photo:
+        card_media(mid, "photo", photo, cap, kb)
+    else:
+        tg_call("editMessageCaption", {"chat_id": TELEGRAM_CHAT_ID, "message_id": mid, "caption": cap,
+                                       "parse_mode": "HTML", "reply_markup": kb})
+
+
+def card_send(c: dict, entries: list[dict], preview: bytes | None = None, mid: int | None = None) -> int | None:
+    """Kaysifet card (wla kaykml card deja kayna b covers jdad). entries: covers b bytes
+    ({cover, site, kind, origin, free, credit}). Kayrja3 ra9m d message."""
+    if DRY_RUN:
+        c["entries"] = [{k: v for k, v in e.items() if k not in ("cover", "site")} | {"photo": "-", "doc": "-"}
+                        for e in entries]
+        c["media"] = bool(entries or preview)
+        c["preview"] = "-" if preview and not entries else None
+        card_show(mid or -1, c)
+        return None
+    wait = c["head"] + "\n\n⏳ kanwjjed covers…"
+    old = mid if mid and not c["media"] else None  # card d nass bla tswira: katbddel b card jdida
+    if old:
+        mid = None
+    first_photo = None
+    if mid is None:
+        first = entries[0]["cover"] if entries else preview
+        r = tg_call("sendPhoto", {"chat_id": TELEGRAM_CHAT_ID, "caption": wait, "parse_mode": "HTML"},
+                    {"photo": ("saispress.jpg", first, "image/jpeg")}, timeout=60) if first else None
+        if isinstance(r, dict):
+            mid, c["media"], first_photo = r["message_id"], True, _fid(r, "photo")
+        else:
+            r = tg_call("sendMessage", {"chat_id": TELEGRAM_CHAT_ID, "text": wait, "parse_mode": "HTML",
+                                        "link_preview_options": {"is_disabled": True}})
+            if not isinstance(r, dict):
+                return old
+            mid, c["media"] = r["message_id"], False
+            if entries:
+                card_note(c, "⚠️ Covers ma tsiftouch (Telegram)")
+        if not entries and c["media"]:
+            c["preview"] = first_photo
+    ents = []
+    for k, e in enumerate(entries if c["media"] else []):
+        step = f"{wait} {k + 1}/{len(entries)}"
+        ent = {key: e[key] for key in ("kind", "origin", "free", "credit")}
+        ent["doc"] = _fid(card_media(mid, "document", e["cover"], step, name="saispress-post-4x5.jpg"), "document")
+        if e.get("site"):
+            ent["site"] = _fid(card_media(mid, "document", e["site"], step, name="saispress-site-16x9.jpg"), "document")
+        ent["photo"] = first_photo if k == 0 and first_photo else _fid(card_media(mid, "photo", e["cover"], step), "photo")
+        if ent["doc"] and ent["photo"]:
+            ents.append(ent)
+        else:
+            log(f"[card KO] cover {k + 1} ma ttrf3ch")
+    if c["media"] and entries:
+        c["entries"], c["i"], c["chosen"] = ents, 0, None
+        if not ents:
+            c["preview"] = c.get("preview") or first_photo
+            card_note(c, "⚠️ Covers ma tsiftouch (Telegram)")
+    with _cards_lock:
+        _cards["cards"][str(mid)] = c
+        if old:
+            _cards["cards"][str(old)] = {"ts": c["ts"], "moved": mid}
+    cards_save()
+    card_show(mid, c, media_change=c["media"])
+    if old:
+        tg_call("deleteMessage", {"chat_id": TELEGRAM_CHAT_ID, "message_id": old})
+    return mid
+
+
+def card_pack(mid: int, c: dict) -> str:
+    """📦 Pack final: fichiers (quality kamla) + nsous jahzin l copie. Kayrja3 status."""
+    e, o = c["entries"][c["chosen"]], c["opts"]
+    media, files, parts = [], {}, []
+    if o["post"]:
+        media.append({"type": "document", "media": e["doc"]})
+        parts.append("Post")
+    site = e.get("site") or next((x["site"] for x in c["entries"] if x.get("site")), None)
+    if o["site"] and c["nass"]:
+        if site:
+            media.append({"type": "document", "media": site})
+        parts.append("Site")
+    if o["story"]:
+        post = tg_download(e["doc"])
+        if post:
+            files["s"] = ("saispress-story-9x16.jpg", story_image(post), "image/jpeg")
+            media.append({"type": "document", "media": "attach://s"})
+            parts.append("Story")
+        else:
+            log("[pack KO] story: cover ma tnzlatch")
+    day = datetime.now(TZ).strftime("%Y-%m-%d")
+    with _cards_lock:
+        counts = _cards["days"].setdefault(day, {})
+        for p_ in parts:
+            if p_ not in c["counted"]:
+                c["counted"].append(p_)
+                counts[p_] = counts.get(p_, 0) + 1
+    caption = (f"📦 <b>Pack final</b> · {' · '.join(parts) or '-'}\n"
+               f"📊 Lyoum: {counts.get('Post', 0)} post · {counts.get('Story', 0)} story · "
+               f"{counts.get('Site', 0)} site (API Instagram: max 50 post+story f 24h)")
+    reply = {"message_id": mid, "allow_sending_without_reply": True}
+    if media:
+        media[-1].update({"caption": caption, "parse_mode": "HTML"})
+        if len(media) == 1:  # sendMediaGroup kaybghi 2-10
+            tg_call("sendDocument", {"chat_id": TELEGRAM_CHAT_ID, "document": media[0]["media"], "caption": caption,
+                                     "parse_mode": "HTML", "reply_parameters": reply}, files or None, timeout=90)
+        else:
+            tg_call("sendMediaGroup", {"chat_id": TELEGRAM_CHAT_ID, "media": media, "reply_parameters": reply},
+                    files or None, timeout=90)
+    if "Site" in parts:
+        tg_send(c["nass"], reply_to=mid)
+    if ("Post" in parts or "Story" in parts) and c["caption"]:
+        tg_send(c["caption"], reply_to=mid)
+    return f"📦 Pack tsifet {datetime.now(TZ).strftime('%H:%M')} ({' · '.join(parts)})"
+
+
+def tg_answer(q: dict, text: str = "") -> None:
+    tg_call("answerCallbackQuery", {"callback_query_id": q["id"], "text": text[:190] or None})
+
+
+def on_callback(q: dict) -> None:
+    msg = q.get("message") or {}
+    who = q.get("from") or {}
+    if str((msg.get("chat") or {}).get("id")) != str(TELEGRAM_CHAT_ID) or (EDITOR_IDS and who.get("id") not in EDITOR_IDS):
+        tg_answer(q, "⛔ Ma 3ndekch l7a9 f had boutons.")
+        return
+    mid, c = card_get(msg.get("message_id"))
+    act = q.get("data", "")
+    if not c:
+        tg_answer(q, "Had l khabar 9dim (ma b9ach f memoire d bot).")
+        return
+    ents, o = c["entries"], c["opts"]
+    if act in ("p", "n") and len(ents) > 1 and c["chosen"] is None:
+        with _cards_lock:
+            c["i"] = (c["i"] + (1 if act == "n" else -1)) % len(ents)
+        tg_answer(q)
+        card_show(mid, c, media_change=True)
+    elif act == "ok" and ents and c["chosen"] is None:
+        with _cards_lock:
+            c["chosen"], c["by"] = c["i"], who.get("first_name", "")
+            c["status"] = f"✅ Cover {c['i'] + 1} mkhtara" + (f" ({esc(c['by'])})" if c["by"] else "")
+        tg_answer(q, "✅ Cover mkhtara")
+        card_show(mid, c)
+    elif act == "bk" and c["chosen"] is not None:
+        with _cards_lock:
+            c["i"], c["chosen"], c["status"] = c["chosen"], None, ""
+        tg_answer(q)
+        card_show(mid, c, media_change=True)
+    elif act in ("ts", "tp", "tt") and c["chosen"] is not None:
+        key = {"ts": "site", "tp": "post", "tt": "story"}[act]
+        if key == "site" and not c["nass"]:
+            tg_answer(q, "Ma kaynach النسخة 1 mazal (ghir l 3onwan).")
+            return
+        with _cards_lock:
+            o[key] = not o[key]
+        tg_answer(q)
+        card_show(mid, c)
+    elif act == "pub" and c["chosen"] is not None:
+        if not (o["post"] or o["story"] or (o["site"] and c["nass"])):
+            tg_answer(q, "Khtar Site, Post wla Story 9bel.")
+            return
+        if c["packs"] and time.time() - c["packs"][-1] < 20:
+            tg_answer(q, "Pack deja tsifet.")
+            return
+        with _cards_lock:
+            c["packs"].append(time.time())
+        cards_save()
+        tg_answer(q, "📦 Kanwjjed l pack…")
+        status = card_pack(mid, c)
+        with _cards_lock:
+            c["status"] = status
+        card_show(mid, c)
+    elif act == "nas" and c["nass"]:
+        tg_answer(q)
+        tg_send(c["nass"], reply_to=mid)
+    elif act == "cap" and c["caption"]:
+        tg_answer(q)
+        tg_send(c["caption"], reply_to=mid)
+    else:
+        tg_answer(q)
+        return
+    cards_save()
+
+
+def cards_loop(stop: threading.Event) -> None:
+    """Kaysm3 l boutons (getUpdates long polling) 7tta ysali run."""
+    while not stop.is_set():
+        try:
+            r = tg_post("getUpdates", 40, json={"offset": _cards["offset"], "timeout": 25,
+                                                "allowed_updates": ["callback_query"]})
+        except requests.RequestException as e:
+            log(f"[boutons] getUpdates {e.__class__.__name__}")
+            stop.wait(5)
+            continue
+        if r.status_code == 409:  # webhook wla bot akhor kaysta3mel getUpdates b nefs token
+            log(f"[boutons KO] {r.text[:200]}")
+            day = datetime.now(TZ).strftime("%Y-%m-%d")
+            if _cards.get("warned") != day:
+                _cards["warned"] = day
+                cards_save()
+                tg_send("⚠️ <b>Boutons ma khddaminch</b>: Telegram rfed getUpdates (409: webhook wla bot akhor "
+                        "b nefs token). Cards katsifet walakin clicks ma kaywslouch.")
+            return
+        if not r.ok:
+            log(f"[boutons] getUpdates HTTP {r.status_code} {r.text[:200]}")
+            stop.wait(5)
+            continue
+        for u in r.json().get("result", []):
+            with _cards_lock:
+                _cards["offset"] = u["update_id"] + 1
+            q = u.get("callback_query")
+            if q:
+                try:
+                    on_callback(q)
+                except Exception as e:  # click wa7d ma khasshch ywa9ef l boutons
+                    log(f"[boutons KO] {e!r}")
+            cards_save()
+
+
+RETRY_NOTE = "⏳ Gemini ma jawebsh daba (quota): النسخة 1, caption w covers ghaywslo f had l card mn b3d."
+
+
 def process(item: dict, number: int, score: int, urgent: bool = False,
             data: tuple[str, list[str]] | None = None, followup: bool = False,
-            retry: list | None = None) -> None:
-    when = datetime.fromtimestamp(item["ts"], TZ).strftime("%H:%M")
-    header = (f"━━━━━━━━━━━━━━━━\n"
-              + ("📄 <b>النص الكامل وصل</b> (l khabar w covers tsiftu 9bel ghir b l 3onwan: hna ghir النسخة 1 w 2)\n" if followup else "")
-              + f"{'🚨 <b>عاجل</b> · ' if urgent else ''}🔴 <b>خبر {number}</b> · ⭐ {score}/10 · {esc(item['source'])} · {when}\n\n"
-              f"<b>{esc(item['title'])}</b>\n<a href=\"{html.escape(item['link'])}\">فتح الخبر</a>")
+            retry: list | None = None, card_id: int | None = None) -> int | None:
+    """Kaysifet card d l khabar (followup: kaykml card li tsiftat b l 3onwan). Kayrja3 ra9m d card."""
     text, image_urls = data or (("", []) if NO_AI else article_data(item))
     item["strong"] = strong_news(item, score, urgent, text)
     if followup and not NO_AI and len(text) >= MIN_TEXT_FOR_AI:
-        # cover w tsawer tsiftu deja m3a l 3onwan: daba ghir النسخة 1/2 (bla Gemini d tsawer, bla covers 3awtani)
-        alert_id = tg_send(header, preview=True)
+        # cover w tsawer tsiftu deja m3a l 3onwan: daba ghir النسخة 1 w caption f nefs l card
+        mid, c = card_get(card_id)
         try:
             out = rewrite(item, text)
         except GeminiError as e:
             log(f"[gemini KO] {item['link']}: {e}")
-            tg_send(f"⚠️ Gemini ma jawebsh: {esc(str(e)[:500])}", reply_to=alert_id)
-            return
-        versions(item, out, None, None, False, alert_id, urgent, with_covers=False)
-        return
+            if mid:
+                tg_send(f"⚠️ Nass wsel walakin Gemini ma jawebsh: {esc(str(e)[:300])}", reply_to=mid)
+            return mid
+        if not c:  # card 9dima (9bel boutons) wla tla7at
+            c = card_new(item, number, score, urgent)
+            card_texts(c, item, out)
+            return card_send(c, [])
+        with _cards_lock:
+            card_texts(c, item, out)
+            card_note(c, "📄 <b>النص الكامل وصل</b> mn source okhra")
+        cards_save()
+        card_show(mid, c)
+        tg_send("📄 <b>النص الكامل وصل</b>: النسخة 1 w Caption kaynin daba f boutons d l khabar.", reply_to=mid)
+        return mid
     img = best_image(image_urls) if image_urls else None
     small, upscaled = (img.size if img else None), False
     if img:
         img, upscaled = enhance(img)
-    insta = insta_image(img) if img else None
-    alert_id = tg_file("sendPhoto", "photo", insta, header) if insta else None
-    if alert_id is None:
-        alert_id = tg_send(header, preview=True)
-    elif upscaled and min(small) < 450:
-        tg_send(f"⚠️ Tswira l asliya sghira bzaf ({small[0]}×{small[1]}): 7tta b AI ma ghatkounch n9iya. "
-                f"A7san tbdelha.", reply_to=alert_id)
-    elif not upscaled and zoom_factor(img, INSTA_SIZE) > 1.4:
-        tg_send(f"⚠️ Tswira l asliya sghira ({img.width}×{img.height}): f l portrait ghatkoun zoom "
-                f"×{zoom_factor(img, INSTA_SIZE):.1f}, quality ghatn9es. A7san tbdelha.", reply_to=alert_id)
-    if insta:
-        label = ("⚠️ Tswira d l source: référence bark (3endha copyright)" if FREE_IMAGES
-                 else "🖼 HD: portrait 4:5 · carré 1:1 · site 16:9 (tswira d l source: 3endha copyright)")
-        if upscaled:
-            label += f"\n🪄 Mkebbra b AI (l asliya {small[0]}×{small[1]})"
-        tg_album(all_formats(img), label, reply_to=alert_id)
-
+    c = card_new(item, number, score, urgent)
+    if img and upscaled and min(small) < 450:
+        card_note(c, f"⚠️ Tswira d l source sghira bzaf ({small[0]}×{small[1]}): 7tta b AI ma ghatkounch n9iya. "
+                     f"A7san tbdelha.")
+    elif img and not upscaled and zoom_factor(img, INSTA_SIZE) > 1.4:
+        card_note(c, f"⚠️ Tswira d l source sghira ({img.width}×{img.height}): f l portrait zoom "
+                     f"×{zoom_factor(img, INSTA_SIZE):.1f}, quality ghatn9es. A7san tbdelha.")
+    if img and upscaled:
+        card_note(c, f"🪄 Tswira d l source mkebbra b AI (l asliya {small[0]}×{small[1]})")
+    preview = insta_image(img) if img else None
     if NO_AI:
-        return
+        return card_send(c, [], preview)
     pics = gather_pics(item.get("hints")) if writer_ready() else None
     if len(text) < MIN_TEXT_FOR_AI:
-        title_only(item, img, small, upscaled, alert_id, urgent, pics)
-        return
+        return card_send(c, title_only(c, item, img, small, upscaled, urgent, pics), preview)
     try:
         out = rewrite(item, text, pics)
     except GeminiError as e:
         log(f"[gemini KO] {item['link']}: {e}")
         if retry is None:
-            tg_send(f"⚠️ Gemini ma jawebsh: {esc(str(e)[:500])}", reply_to=alert_id)
-            return
+            card_note(c, f"⚠️ Gemini ma jawebsh: {esc(str(e)[:300])}")
+            return card_send(c, [], preview)
+        card_note(c, RETRY_NOTE)
+        mid = card_send(c, [], preview)
         del retry[:-199]  # max 200 f queue
         retry.append({"item": {k: item.get(k) for k in ("title", "link", "source", "credit", "ts", "hints", "strong")},
-                      "text": text, "images": image_urls, "alert_id": alert_id, "urgent": urgent,
-                      "since": time.time()})
-        tg_send("⏳ Gemini ma jawebsh daba (quota). النسخة 1 w 2 w covers ghaywslo mn b3d, reply 3la had l khabar.",
-                reply_to=alert_id)
-        return
-    versions(item, out, img, small, upscaled, alert_id, urgent, pics=pics)
-
-
-def versions(item: dict, out: dict, img, small, upscaled: bool, alert_id: int | None, urgent: bool,
-             with_covers: bool = True, pics: dict | None = None) -> None:
-    credit = f"\n\n{esc(item['credit'])}" if item.get("credit") else ""
-    tg_send(f"📰 <b>النسخة 1 (كاملة)</b>{' · ' + lite_note(out) if lite_note(out) else ''}\n\n<b>{esc(out['title'].strip())}</b>\n\n{esc(out['article'].strip())}{credit}",
-            reply_to=alert_id)
-    # description d Instagram wajda l copie: bla header w bla titre (titre kayn f cover)
-    tg_send(f"{esc(out['instagram'].strip())}{credit}", reply_to=alert_id)
-    if with_covers:
-        covers(item, out, img, small, upscaled, alert_id, "\n" + lite_note(out) if lite_note(out) else "", urgent=urgent, pics=pics)
+                      "text": text, "images": image_urls, "card": mid, "number": number, "score": score,
+                      "urgent": urgent, "since": time.time()})
+        return mid
+    card_texts(c, item, out)
+    return card_send(c, build_covers(item, out, img, small, upscaled, urgent, pics), preview)
 
 
 RETRY_HOURS = 12
 
 
 def retry_pending(state: dict) -> None:
-    """Akhbar tsiftu (alerte) walakin Gemini ma jawebch (quota): kan3awdo wa7ed f kol dowra."""
+    """Akhbar tsiftu (card) walakin Gemini ma jawebch (quota): kan3awdo wa7ed f kol dowra."""
     queue = state.setdefault("retry", [])
     while queue and time.time() - queue[0]["since"] > RETRY_HOURS * 3600:
         old = queue.pop(0)
         log(f"[retry tla7] {old['item']['link']}")
-        tg_send(f"⚠️ Gemini ma jawebsh {RETRY_HOURS} sa3a: had l khabar b9a bla النسخة 1/2.",
-                reply_to=old["alert_id"])
+        tg_send(f"⚠️ Gemini ma jawebsh {RETRY_HOURS} sa3a: had l khabar b9a bla النسخة 1 w covers.",
+                reply_to=old.get("card") or old.get("alert_id"))
     if not queue:
         return
     if not writer_ready():
@@ -1652,7 +2026,15 @@ def retry_pending(state: dict) -> None:
     small, upscaled = (img.size if img else None), False
     if img:
         img, upscaled = enhance(img)
-    versions(item, out, img, small, upscaled, job["alert_id"], job["urgent"], pics=pics)
+    mid, c = card_get(job.get("card"))
+    if not c:  # job 9dim (9bel boutons) wla card tla7at
+        c = card_new(item, job.get("number"), job.get("score"), job.get("urgent", False))
+    with _cards_lock:
+        if RETRY_NOTE in c["notes"]:
+            c["notes"].remove(RETRY_NOTE)
+        card_texts(c, item, out)
+    entries = build_covers(item, out, img, small, upscaled, job.get("urgent", False), pics)
+    card_send(c, entries, insta_image(img) if img and not mid else None, mid=mid)
 
 
 TITLE_PROMPT = """أنت محرر في جريدة إلكترونية مغربية. وصلك عنوان خبر فقط، بدون نص الخبر.
@@ -1673,27 +2055,29 @@ TITLE_SCHEMA = {
 }
 
 
-def title_only(item: dict, img, small, upscaled: bool, alert_id: int | None, urgent: bool = False,
-               pics: dict | None = None) -> None:
-    """Khabar bla nass (Google News / site blocki): bla versions, walakin cover mn l 3onwan."""
+def title_only(c: dict, item: dict, img, small, upscaled: bool, urgent: bool = False,
+               pics: dict | None = None) -> list[dict]:
+    """Khabar bla nass (Google News / site blocki): bla النسخة 1, walakin covers mn l 3onwan."""
     system, user, schema, images = with_pics(TITLE_PROMPT, f"العنوان الأصلي: {item['title']}", TITLE_SCHEMA, pics)
     try:
         out = gemini_json(system, user, schema, 0.4, images=images, strong=item.get("strong", True))
     except GeminiError as e:
         log(f"[gemini KO] {item['link']}: {e}")
-        tg_send("ℹ️ النص ما توصلناش بيه (غير العنوان). شوف الرابط.", reply_to=alert_id)
-        return
-    tg_send("ℹ️ النص ما توصلناش بيه (غير العنوان): ma kaynach النسخة 1 w 2. "
-            "Cover tsawb ghir mn l 3onwan, raje3 l source 9bel ma tnchr.", reply_to=alert_id)
-    covers(item, out, img, small, upscaled, alert_id, "\nℹ️ Mn l 3onwan bark (nass ma wselch)" + ("\n" + lite_note(out) if lite_note(out) else ""),
-           urgent, pics)
+        card_note(c, "ℹ️ النص ما توصلناش بيه (غير العنوان) w Gemini ma jawebsh. Chouf l lien.")
+        return []
+    card_note(c, "ℹ️ النص ما توصلناش بيه (غير العنوان): ma kaynach النسخة 1. "
+                 "Cover mn l 3onwan bark, raje3 l source 9bel ma tnchr.")
+    card_note(c, lite_note(out))
+    return build_covers(item, out, img, small, upscaled, urgent, pics)
 
 
-def covers(item: dict, out: dict, img, small, upscaled: bool, alert_id: int | None, note: str = "",
-           urgent: bool = False, pics: dict | None = None) -> None:
-    """Tsawer khrin (Google / 7orra) + cover Instagram. pics: Gemini khtar deja f call d ktaba (bla call zayed)."""
-    # tsawer li ymken ndiro bihom l cover: (tswira, 9yas l asli, mkebbra b AI?, tswira 7orra?, smiya)
-    choices = [(img, small, upscaled, False, "source")] if img else []
+def build_covers(item: dict, out: dict, img, small, upscaled: bool, urgent: bool = False,
+                 pics: dict | None = None) -> list[dict]:
+    """Tsawer (source, chakhsiya, 7orra / idara) → covers Instagram 4:5 + tswira d site 16:9 l kol wa7da.
+    pics: Gemini khtar deja f call d ktaba (bla call zayed)."""
+    # tsawer li ymken ndiro bihom l cover. stock: tswira ta3biriya (label f cover); free: msmou7 tnchrha
+    choices = [{"img": img, "native": small, "up": upscaled, "stock": False, "origin": "source",
+                "credit": "Tswira d l source"}] if img else []
     news = f"{item['title']}\n{out.get('instagram_title', '')}\n{out.get('article', '')[:600]}"
     pre_person, pre_free = picked(out, pics)
     person_name = out.get("main_person", "").strip() or (pre_person and pics["person_en"]) or ""
@@ -1709,19 +2093,15 @@ def covers(item: dict, out: dict, img, small, upscaled: bool, alert_id: int | No
         img_o, o_credit = official
         o_size = img_o.size
         img_o, o_up = enhance(img_o)
-        choices.append((img_o, o_size, o_up, False, "rasmiya"))
-        tg_album(all_formats(img_o),
-                 f"✅ <b>Tswira 7orra dyal {esc(person_name)}</b> (rasmiya / CC) · portrait 4:5 · carré 1:1 · site 16:9\n"
-                 f"{esc(o_credit)}", reply_to=alert_id)
+        choices.append({"img": img_o, "native": o_size, "up": o_up, "stock": False, "origin": "rasmiya",
+                        "credit": f"Tswira 7orra dyal {person_name} (rasmiya / CC) · {o_credit}"})
     elif person_name:
         person = google_person_image(person_name, urlparse(item["link"]).netloc.removeprefix("www."),
                                      out.get("main_person_en", ""))
         if person:
             img_p, p_src = person
-            choices.append((img_p, img_p.size, False, False, "Google"))
-            tg_album(all_formats(img_p),
-                     f"🔎 <b>Tswira HD khra dyal {esc(person_name)}</b> (web) · {esc(p_src)}\n"
-                     f"⚠️ 3endha copyright: référence", reply_to=alert_id)
+            choices.append({"img": img_p, "native": img_p.size, "up": False, "stock": False, "origin": "Google",
+                            "credit": f"Tswira HD dyal {person_name} (web) · {p_src}"})
     # cover d score ghir ila l khabar 3la natija d match (machi tasnif FIFA wla tasri7 fih natija)
     match = cover.valid_match(out.get("match")) if out.get("match_result") is True else None
     if match:  # natija d match: chi3arat d l fer9an (smiya d l Botola 9bel smiya d Gemini)
@@ -1734,7 +2114,7 @@ def covers(item: dict, out: dict, img, small, upscaled: bool, alert_id: int | No
     # tsawer ta3biriya (7tta 2) bach t5tar binathom. Fallback (call Gemini zayed) ghir ila ma kaynach chakhsiya.
     if pics is not None:
         frees = [got for got in map(take_cand, pre_free[:1] if idara_img else pre_free) if got]
-    elif any(c[4] in ("rasmiya", "Google") for c in choices):
+    elif any(ch["origin"] in ("rasmiya", "Google") for ch in choices):
         frees = []
     else:
         frees = free_images(out.get("image_query", ""), news, out.get("category", ""))
@@ -1747,48 +2127,36 @@ def covers(item: dict, out: dict, img, small, upscaled: bool, alert_id: int | No
     for img_free, photo_credit, origin in frees:
         free_size = img_free.size
         img_free, free_up = enhance(img_free)
-        choices.append((img_free, free_size, free_up, True, origin))
-        tg_album(all_formats(img_free),
-                f"✅ <b>Tswira 7orra, msmou7 tnchrha</b> · portrait 4:5 · carré 1:1 · site 16:9\n"
-                f"{esc(photo_credit)}", reply_to=alert_id)
-    send_post(out, choices, alert_id, note, urgent)
-
-
-def send_post(out: dict, choices: list[tuple], reply_to: int | None, note: str = "", urgent: bool = False) -> None:
-    """Covers Instagram: tswira d l khabar (source >= 600px), tswira d l chakhsiya (rasmiya, sinon Google),
-    w 7tta 2 tsawer ta3biriya 7orra (bach l user ykhtar)."""
-    real = [c for c in choices if not c[3]]
-    person = next((c for c in real if c[4] in ("rasmiya", "Google")), None)
-    source = next((c for c in real if c[4] == "source" and min(c[1]) >= 600), None)
-    picks = [c for c in (source, person) if c] or real[:1]
-    picks += [c for c in choices if c[3]][:2]
-    for img, native, upscaled, stock, origin in picks:
+        choices.append({"img": img_free, "native": free_size, "up": free_up, "stock": True, "origin": origin,
+                        "credit": photo_credit})
+    # covers: tswira d l khabar (source >= 600px), tswira d l chakhsiya (rasmiya, sinon Google),
+    # w 7tta 2 tsawer ta3biriya 7orra (bach l user ykhtar)
+    real = [ch for ch in choices if not ch["stock"]]
+    person = next((ch for ch in real if ch["origin"] in ("rasmiya", "Google")), None)
+    source = next((ch for ch in real if ch["origin"] == "source" and min(ch["native"]) >= 600), None)
+    picks = [ch for ch in (source, person) if ch] or real[:1]
+    picks += [ch for ch in choices if ch["stock"]][:2]
+    entries = []
+    for ch in picks:
         try:
-            data, kind = cover.make_post(img, out["instagram_title"], out.get("category", ""), crop_to,
-                                         native, upscaled, stock, urgent, out.get("match"))
+            data, kind = cover.make_post(ch["img"], out["instagram_title"], out.get("category", ""), crop_to,
+                                         ch["native"], ch["up"], ch["stock"], urgent, out.get("match"))
         except Exception as e:  # cover ma khassoush ywe9ef l bot
             log(f"[cover KO] {e.__class__.__name__}: {e}")
             continue
-        log(f"[cover] forme {kind} · tswira {origin} {native[0]}x{native[1]}")
-        tg_file("sendDocument", "document", data,
-                f"📸 <b>Post Instagram</b> (forme {kind}) · tswira: {origin}"
-                + ("\n✅ Tswira 7orra, msmou7 tnchrha" if stock or origin == "rasmiya"
-                   else "\n⚠️ Tswira d l source/Google 3endha copyright")
-                + note, reply_to=reply_to)
-    match = out.get("match")
+        log(f"[cover] forme {kind} · tswira {ch['origin']} {ch['native'][0]}x{ch['native'][1]}")
+        entries.append({"cover": data, "site": render(ch["img"], SITE_SIZE), "kind": kind, "origin": ch["origin"],
+                        "free": ch["stock"] or ch["origin"] == "rasmiya", "credit": ch["credit"]})
     if match and (match.get("home_badge") is not None or match.get("away_badge") is not None):
         try:
             data = cover.make_badges_post(out["instagram_title"], match, urgent)
+            log("[cover] forme match · chi3arat")
+            entries.append({"cover": data, "site": None, "kind": "match", "origin": "chi3arat d l fer9an",
+                            "free": False, "credit": ""})
         except Exception as e:
             log(f"[cover KO] chi3arat: {e.__class__.__name__}: {e}")
-            return
-        log("[cover] forme match · chi3arat")
-        tg_file("sendDocument", "document", data,
-                "📸 <b>Post Instagram</b> (forme match) · chi3arat d l fer9an (bla tswira)" + note,
-                reply_to=reply_to)
+    return entries
 
-
-# ---------------------------------------------------------------- main
 
 def remember_story(state: dict, item: dict, pending: dict | None = None, sent: bool = False) -> dict:
     """pending: khabar wsel bla nass, kantsnaw source okhra tjibo b l article ({score, intl, urgent}).
@@ -1944,8 +2312,11 @@ def handle_judged(state: dict, it: dict, v: dict, today: str) -> tuple[dict | No
     save_state(state)
     if (v.get("hints") or {}).get("image_query"):
         it = {**it, "hints": v["hints"]}
-    process(it, sent_today + 1, score, urgent, data, followup=bool(waiting and waiting.get("sent")),
-            retry=state.setdefault("retry", []))
+    cid = process(it, sent_today + 1, score, urgent, data, followup=bool(waiting and waiting.get("sent")),
+                  retry=state.setdefault("retry", []), card_id=story.get("card"))
+    if cid:
+        story["card"] = cid  # bach nass li ywsel mn b3d ytzad f nefs l card
+        save_state(state)
     return story, 1
 
 
@@ -2044,6 +2415,12 @@ def main() -> int:
     for k in [k for k, ts in _used_free.items() if ts < cutoff]:
         del _used_free[k]
     log(f"[used_imgs] {len(_used_free)} f state ({USED_IMG_HOURS} sa3at)")
+    cards_load()
+    stop = threading.Event()
+    buttons = None
+    if not DRY_RUN:
+        buttons = threading.Thread(target=cards_loop, args=(stop,), name="boutons", daemon=True)
+        buttons.start()
     deadline = time.time() + RUN_MINUTES * 60
     try:
         while True:
@@ -2054,6 +2431,10 @@ def main() -> int:
             time.sleep(max(0.0, POLL_SECONDS - (time.time() - started)))
     finally:
         save_state(state)
+        stop.set()
+        if buttons:
+            buttons.join(45)  # getUpdates kaytsna 7tta 25s: nkhlliw l click l akhir ykml
+        cards_save()
     return 0
 
 

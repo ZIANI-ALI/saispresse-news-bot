@@ -1,14 +1,20 @@
 # News bot (Telegram + Gemini)
 
-Kayraqeb ~24 source dyal l akhbar f l Maghrib kol 60 tanya. Kol khabar jdid kaywselk f Telegram f 3 messages:
+Kayraqeb ~24 source dyal l akhbar f l Maghrib kol 60 tanya. Kol khabar jdid = **message wa7d (card)** f Telegram:
 
-1. **Alerte** (sa3a ghir tban): source, sa3a, 3onwan, lien.
-2. **النسخة 1**: nafs l khabar b siyagha jdida (bla zyada, bla na9s, arqam/asma/iqtibasat kif ma homa).
-3. **Description d Instagram**: message bo7do, wajed l copie kif howa (bla header w bla titre, 7it titre kayn f cover) + hashtags.
+1. **Cover kbira** + header (score, source, sa3a, 3onwan, lien) + ma3loumat 3la tswira (7orra wla copyright, credit).
+2. **◀ 1/3 ▶**: kat9leb bin covers (tswira d source, chakhsiya, tsawer 7orra) f nefs l message.
+3. **✅ Valider had l cover** → toggles **🌐 Site / 📸 Post / 📱 Story** (Story ✅ automatiquement ila score 9-10 wla عاجل).
+4. **📦 Pack final** → reply b fichiers quality kamla: cover 4:5 (Post), tswira 16:9 (Site), story 9:16 (cover f l wost fo9 khalfiya mdbbla), w nsous jahzin l copie: **النسخة 1** (l site) w **Caption** d Instagram. Compteur d lyoum kayban (API Instagram: max 50 post+story f 24h).
+5. **📄 النسخة 1 / 📝 Caption**: kaytsiftou ghir ila clickiti. **↩️ Bddel cover** kayrj3ek l ikhtiyar.
 
-**Ghir l mohim:** Gemini kay3ti l kol khabar note d ahamiya mn 10. Kolchi li 3ndo `MIN_SCORE` (7) wla ktar kaytsifet bla 7add (bla limite f sa3a). `HIGH_SCORE` (8): ghir l 9-10 (> 8) kaykounou 3ajil. Tqder tbdel had l ar9am men Variables.
+Covers kaytkhzno f Telegram (file_id) w cards f `state/cards.json` (3 iyam). Boutons kayjiw b `getUpdates` f thread bo7dha: click bin run w run (~1-2 d9aye9) kaytsna 7tta ybda run jay. Ila bot 3ndo webhook (wla bot akhor kaysta3mel nefs token), Telegram kayrfed getUpdates (409) w bot kaysifet tnbih wa7d f nhar. `EDITOR_IDS` (Variables, ikhtiyari): IDs li y9dro yclickiw; khawi = ay wa7d f chat. A7san chat ykoun private: `TELEGRAM_CHAT_ID` = ID dyalk.
 
-**Akhbar dawliya:** sources b `"intl": true` (سكاي نيوز عربية، بي بي سي عربي; الجزيرة w فرانس 24 m7bousin: feed bati2). Khabar dawli kaytsifet b7al l akhrin: score >= `MIN_SCORE` (7).
+Ila Gemini ma jawebch (quota): card katsifet b tswira d source + "⏳", w mlli yjawb kattkml **nefs l card** (covers + nsous). Khabar wsel ghir b 3onwan: covers mn l 3onwan, w mlli ywsel nass mn source okhra kayttzad f nefs l card (+ message sghir "📄 النص الكامل وصل").
+
+**Ghir l mohim:** Gemini kay3ti l kol khabar note d ahamiya mn 10. Kolchi li 3ndo `MIN_SCORE` (8) wla ktar kaytsifet bla 7add (bla limite f sa3a). `HIGH_SCORE` (8): ghir l 9-10 (> 8) kaykounou 3ajil. Tqder tbdel had l ar9am men Variables.
+
+**Akhbar dawliya:** sources b `"intl": true` (سكاي نيوز عربية، بي بي سي عربي; الجزيرة w فرانس 24 m7bousin: feed bati2). Khabar dawli kaytsifet b7al l akhrin: score >= `MIN_SCORE` (8).
 
 **Kora:** sources رياضة (هسبورت، سكاي نيوز عربية رياضة، ماركا ريال مدريد/برشلونة، آس، موندو ديبورتيفو برشلونة/ريال مدريد). Gemini (judge) kay3ref l khabar dyal kora (`football`) w kay3tih score b slom khas: 8 = natija d l mountakhab, ay match d l Botola, l fera9 l maghribiya f Afri9ya, l mountakhabat l kbar, transfer d la3ib maghribi wla star, akhbar kbar d Real/Barça; 7 = akhbar Real/Barça dyal Marca, akhbar l fera9 l maghribiya, la3ibin maghariba f Oropa. Kora kattsifet mn 7+ 7tta ila kant dawliya.
 
@@ -16,7 +22,7 @@ Kayraqeb ~24 source dyal l akhbar f l Maghrib kol 60 tanya. Kol khabar jdid kayw
 
 **Kol khabar:** tswira + 3onwan asli (+ note) → النسخة 1 → Instagram (3onwan viral + 2-3 fiqrat). Kol khabar kaybda b khatt fasel w ra9mo f nhar.
 
-**Tsawer 7orra (Pexels / Pixabay / Openverse):** Gemini kay3ti 3 recherches (mn d9i9a l 3amma, b7al `bone in red dirt | skull buried soil | crime scene tape`); l kol wa7da kayjereb Pexels/Pixabay, w ila walou Openverse (majjani bla key: Flickr, Wikimedia; ghir CC0/PDM/BY/BY-SA). Tsawer d Openverse kayjiw b credit w licence; BY-SA kat3ni cover khasso nafs l licence. Mn b3d, bot kayjme3 7tta ~18 tswira (2 mn kol source l kol recherche) w kaysifethom sghar l Gemini, li kaychoufhom w kaykhtar li kat3abber 3la l khabar; kayrfed a3lam/ma3alim d dwal okhra w tsawer bla 3ala9a. Ila rfedhom kamlin (wla Gemini ma jawebch), ma kayjich cover b tswira 7orra (ghir b tswira d source). Wikimedia: kayst3mel thumbs (1920px) b User-Agent wad7, 7it l original kayrja3 429. zid secret `PIXABAY_API_KEY` (majjani, l key kayban f https://pixabay.com/api/docs/ men b3d login) wla `PEXELS_API_KEY` (https://www.pexels.com/api/, daba mwe99fin keys jdad). Ila kaynin b jouj, Pexels lowel w Pixabay ila ma l9a walou. Kol khabar kayjih tswira HD bla copyright f 3 formats (portrait 4:5, carré 1:1, site 16:9), mkhtara 3la 7sab l mawdou3. Tswira d l source katb9a référence bark.
+**Tsawer 7orra (Pexels / Pixabay / Openverse):** Gemini kay3ti 3 recherches (mn d9i9a l 3amma, b7al `bone in red dirt | skull buried soil | crime scene tape`); l kol wa7da kayjereb Pexels/Pixabay, w ila walou Openverse (majjani bla key: Flickr, Wikimedia; ghir CC0/PDM/BY/BY-SA). Tsawer d Openverse kayjiw b credit w licence; BY-SA kat3ni cover khasso nafs l licence. Mn b3d, bot kayjme3 7tta ~18 tswira (2 mn kol source l kol recherche) w kaysifethom sghar l Gemini, li kaychoufhom w kaykhtar li kat3abber 3la l khabar; kayrfed a3lam/ma3alim d dwal okhra w tsawer bla 3ala9a. Ila rfedhom kamlin (wla Gemini ma jawebch), ma kayjich cover b tswira 7orra (ghir b tswira d source). Wikimedia: kayst3mel thumbs (1920px) b User-Agent wad7, 7it l original kayrja3 429. zid secret `PIXABAY_API_KEY` (majjani, l key kayban f https://pixabay.com/api/docs/ men b3d login) wla `PEXELS_API_KEY` (https://www.pexels.com/api/, daba mwe99fin keys jdad). Ila kaynin b jouj, Pexels lowel w Pixabay ila ma l9a walou. Kol khabar kayjih tswira HD bla copyright (cover 4:5 + site 16:9), mkhtara 3la 7sab l mawdou3. Tswira d l source katb9a référence bark.
 
 **Bla tkrar:** nafs l khabar men sources mkhtalfin kaywsel mra we7da (l source lowla). Ila 3onwan tchabeh, Gemini kayqarer wach nafs l 7adath wla tatawor jdid.
 
@@ -36,7 +42,7 @@ Sources: `sources.json` (`enabled: false` bach t7bes wa7ed). Sites li kaybloquiw
 5. **Test**: Actions → *News bot* → *Run workflow* (5 d9aye9). Awel dowra katsifet "✅ Bot khdam" w ma katsifetsh l akhbar l 9dam.
 6. **Tkhdem 24/24**: tab *Variables* → `NEWS_BOT_ENABLED` = `true`, men b3d *Run workflow* mra we7da. Kol run melli ysali kay-lanci run jay bo7do. Bach t7bso: `NEWS_BOT_ENABLED` = `false`.
 
-Variables ikhtiyariyin: `MIN_SCORE`, `HIGH_SCORE`, `GEMINI_MODELS`, `POLL_SECONDS`, `RUN_MINUTES`.
+Variables ikhtiyariyin: `MIN_SCORE`, `HIGH_SCORE`, `GEMINI_MODELS`, `POLL_SECONDS`, `RUN_MINUTES`, `EDITOR_IDS`.
 
 ## Mohim
 
@@ -55,7 +61,7 @@ Free tier 3ndo limite d requests f l youm, w kol model 3ndo quota dyalo. Ktaba (
 
 Ila salaw kolchi models:
 - Akhbar jdad ma kaytjajouch: kayb9aw f queue d judge w kayt3awdou f dowra jaya (7tta `MAX_AGE_HOURS`, 3 sa3at).
-- Khabar li tsifet (alerte) w Gemini ma ktebch النسخة 1/2: kaydkhel f queue (`retry`), w kayt3awed wa7ed f kol dowra 7tta 12 sa3a. Versions + covers kaywslo reply 3la l alerte.
+- Khabar li tsifet (card) w Gemini ma ktebch النسخة 1/2: kaydkhel f queue (`retry`), w kayt3awed wa7ed f kol dowra 7tta 12 sa3a. Mlli Gemini yjawb, النسخة 1, caption w covers kayttzado f nefs l card.
 
 ## Test local
 
@@ -73,7 +79,7 @@ DRY_RUN=1 GEMINI_API_KEY=... python bot.py
 
 ## Cover Instagram (automatique)
 
-Kol khbar kaywsel m3ah **Post Instagram** wajed (1080×1350, document = quality kamla), msawb b `cover.py`:
+Kol card fiha covers **Post Instagram** wajdin (1080×1350, f Pack kayjiw document = quality kamla), msawbin b `cover.py`:
 
 - **Forme A** (l 3adiya): tswira l fo9 katdoub f navy, titre kbir, catégorie gold. Tswira katkbar/katsghar 3la 7sab toul d titre.
 - **Forme 3ajil**: forme A b pill "عاجل" 7amra w bar 7mer blast gold. Ila Gemini (judge) qal l khabar 3ajil (urgent) w score 9-10 (> `HIGH_SCORE`), kaydkhel blast A/D.

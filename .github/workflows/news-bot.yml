@@ -63,6 +63,7 @@ jobs:
           MIN_SCORE: ${{ vars.MIN_SCORE || '8' }}
           SERPER_CREDITS: ${{ vars.SERPER_CREDITS || '2500' }}
           HIGH_SCORE: ${{ vars.HIGH_SCORE || '8' }}
+          EDITOR_IDS: ${{ vars.EDITOR_IDS }}
 
       - name: Save state
         if: always() && hashFiles('state/seen.json') != ''
