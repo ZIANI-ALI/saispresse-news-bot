@@ -2102,6 +2102,28 @@ def site_media(data: bytes) -> str:
     return j["url"]
 
 
+# nginx d Hostinger (wra CDN) kayrja3 chi merrat 307 l nefs l lien: Instagram ma kaytb3ouch w kayrfed (9004).
+# Kan9raw tswira 7tta tji 200 (CDN kaykhbbiha) w kan3awdo m3a Instagram.
+IG_FETCH_PAUSES = (0, 4, 8, 15, 25)
+IG_FETCH_MAX = 150  # s: card ma tb9ach "⏳ Kanchr" ktar mn hadchi (BUSY_SECONDS)
+
+
+def media_warm(url: str, tries: int = 3) -> None:
+    codes = []
+    for k in range(tries):
+        if k:
+            time.sleep(1)
+        try:
+            r = requests.get(url, timeout=(5, 15), headers={"User-Agent": UA}, allow_redirects=False)
+            codes.append(r.status_code)
+            if r.status_code == 200 and r.headers.get("content-type", "").startswith("image/"):
+                break
+        except requests.RequestException as ex:
+            codes.append(ex.__class__.__name__)
+    if codes != [200]:
+        log(f"[instagram] tswira f site: {' → '.join(map(str, codes))}")
+
+
 def ig_publish(data: bytes, caption: str = "", story: bool = False) -> str:
     """Post (caption) wla Story f Instagram. Kayrja3 lien (permalink) ila kayn."""
     params = {"image_url": site_media(data)}
@@ -2109,7 +2131,23 @@ def ig_publish(data: bytes, caption: str = "", story: bool = False) -> str:
         params["media_type"] = "STORIES"
     else:
         params["caption"] = caption[:2200]
-    container = ig_call("POST", f"{IG_USER_ID}/media", **params)["id"]
+    container, err, end = None, "", time.time() + IG_FETCH_MAX
+    for pause in IG_FETCH_PAUSES:
+        if pause:
+            if time.time() + pause > end:
+                break
+            log(f"[instagram] {err} → n3awdo mor {pause}s")
+            time.sleep(pause)
+        media_warm(params["image_url"])
+        try:
+            container = ig_call("POST", f"{IG_USER_ID}/media", **params)["id"]
+            break
+        except IGError as ex:
+            if "code 9004" not in str(ex):  # 9004: Instagram ma 9derch yjib tswira mn l lien
+                raise
+            err = str(ex)
+    if not container:
+        raise IGError("Instagram ma 9derch yjib tswira mn site: nginx d Hostinger kayrja3 307")
     for _ in range(10):  # Instagram kayjib tswira w kaywjjedha (ghaliban dghya), max ~30 s
         status = ig_call("GET", container, fields="status_code").get("status_code")
         if status == "FINISHED":
