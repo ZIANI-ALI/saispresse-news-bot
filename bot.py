@@ -2046,7 +2046,9 @@ def site_publish(c: dict, e: dict, raw: Image.Image, fit: bool = False) -> tuple
     cat = _site_cat(site["category"], known)
     for _ in range(2):
         try:
-            r = site_request(SITE_PUBLISH_URL, data={"title": site["title"][:300], "body": body, "category": cat},
+            # excerpt khawi: bla مقدمة (fiqra lowla deja f l article, kanet katban joj mrat ta7t l 3onwan)
+            r = site_request(SITE_PUBLISH_URL, data={"title": site["title"][:300], "body": body, "category": cat,
+                                                     "excerpt": ""},
                              files={"image": ("saispress-site.jpg", image, "image/jpeg")})
         except requests.RequestException as ex:
             return None, f"site ma jawebch ({ex.__class__.__name__})"
