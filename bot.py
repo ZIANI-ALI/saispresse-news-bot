@@ -1091,8 +1091,8 @@ RESPONSE_SCHEMA = {
                          "main_person_en", "category", "institution", "match_result", "match"],
 }
 
-_last_gemini_call = 0.0
-_cooldown: dict[str, float] = {}  # model -> w9t fach yrja3 (ila quota dyalo salat)
+_last_call: dict[str, float] = {}  # model -> akhir call (rate limit d d9i9a kayt7seb l kol model)
+_cooldown: dict[str, float] = {}  # model -> w9t fach yrja3 (quota salat / overload); kaytkhzen f state["gemini_cd"]
 _gstats: dict | None = None  # state["gemini"]: {nhar d quota: {"models": {model: {ok, 429, err}}, judge, ktaba, tsawer}}
 
 
@@ -1160,8 +1160,9 @@ def discover_models() -> list[str]:
 
 def gemini_json(system: str, user: str, schema: dict, temperature: float,
                 images: list[bytes] | None = None, strong: bool = True) -> dict:
-    """Appel Gemini b jawab JSON. Kayjereb l models b tartib; 404 kaymse7 l model."""
-    global _last_gemini_call, _models
+    """Appel Gemini b jawab JSON. Kayjereb l models b tartib (a7dath 9bel): quota salat → model li mor;
+    overload (5xx) → kayt3awed mra mor 10 s; 404 kaymse7 l model."""
+    global _models
     if not _models:
         _models = discover_models()
     body = {
@@ -1178,56 +1179,69 @@ def gemini_json(system: str, user: str, schema: dict, temperature: float,
     }
     errors = []
     purpose = ("judge" if schema is JUDGE_BATCH_SCHEMA else "tsawer" if schema is PICK_SCHEMA else "ktaba")
-    if purpose == "judge":
+    if purpose == "judge" or not strong:
+        # judge w akhbar 3adiyin: lite 9bel (quota d flash l lmohimmin); ila lite salaw / overload: flash
         pool = _lite_models + _models
-    elif strong or not _lite_models:
+    else:
         pool = _models + _lite_models
-    else:  # khabar 3adi: lite bark, quota d flash mkhbya l akhbar lmohimmin (strong_news)
-        pool = _lite_models
-    order = [m for m in pool if _cooldown.get(m, 0) <= time.time()]
-    if not order:
-        raise GeminiError("quota sala f kolchi models (kan3awdo mn b3d)")
-    for model in order:
-        wait = _last_gemini_call + GEMINI_MIN_INTERVAL - time.time()
-        if wait > 0:
-            time.sleep(wait)
-        _last_gemini_call = time.time()
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-        try:
-            r = http.post(url, json=body, headers={"x-goog-api-key": GEMINI_KEY}, timeout=90)
-        except requests.RequestException as e:
-            gcount(model, "err")
-            errors.append(f"{model}: {e.__class__.__name__}")
-            continue
-        if r.status_code == 404:  # model ma b9ach; ila tkhwat l list d flash, kan3awdo discovery
-            for lst in (_models, _lite_models):
-                if model in lst:
-                    lst.remove(model)
-        if r.status_code == 429:  # quota d d9i9a: 1 min; quota d nhar: 7tta tt3awed (nos lil California)
-            gcount(model, "429")
-            if "PerDay" in r.text:
-                _cooldown[model] = time.time() + quota_reset_in()
-                ok_today = ((_gstats or {}).get(quota_day(), {}).get("models", {}).get(model, {}).get("ok", 0))
-                log(f"[quota d nhar sala] {model} ({ok_today} call nej7at lyoum), kayrja3 f "
-                    f"{datetime.fromtimestamp(_cooldown[model], TZ):%H:%M}")
-            else:
-                _cooldown[model] = time.time() + 60
-        elif r.status_code != 200:
-            gcount(model, "err")
-        if r.status_code != 200:
-            errors.append(f"{model}: HTTP {r.status_code} {r.text[:200]}")
-            continue
-        try:
-            parts = r.json()["candidates"][0]["content"]["parts"]
-            raw = "".join(p.get("text", "") for p in parts if not p.get("thought"))
-            out = json.loads(raw)
-            if all(k in out for k in schema["required"]):
-                gcount(model, "ok", purpose)
-                out["_model"] = model
-                return out
-            errors.append(f"{model}: jawab naqes")
-        except (KeyError, IndexError, ValueError) as e:
-            errors.append(f"{model}: {e.__class__.__name__}")
+    busy: list[str] = []  # 5xx / timeout: kan3awdo mra wa7da mor chwiya 9bel ma nsdo l model
+    for attempt in (0, 1):
+        if attempt:
+            if not busy:
+                break
+            time.sleep(10)
+        order = busy if attempt else [m for m in pool if _cooldown.get(m, 0) <= time.time()]
+        if not order:
+            raise GeminiError("quota sala f kolchi models (kan3awdo mn b3d)")
+        busy = []
+        for model in order:
+            wait = _last_call.get(model, 0) + GEMINI_MIN_INTERVAL - time.time()
+            if wait > 0:
+                time.sleep(wait)
+            _last_call[model] = time.time()
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+            try:
+                r = http.post(url, json=body, headers={"x-goog-api-key": GEMINI_KEY}, timeout=90)
+            except requests.RequestException as e:
+                gcount(model, "err")
+                errors.append(f"{model}: {e.__class__.__name__}")
+                busy.append(model)
+                continue
+            if r.status_code == 404:  # model ma b9ach; ila tkhwat l list d flash, kan3awdo discovery
+                for lst in (_models, _lite_models):
+                    if model in lst:
+                        lst.remove(model)
+            if r.status_code == 429:  # quota d d9i9a: 1 min; quota d nhar: 7tta tt3awed (nos lil California)
+                gcount(model, "429")
+                if "PerDay" in r.text:
+                    _cooldown[model] = time.time() + quota_reset_in()
+                    ok_today = ((_gstats or {}).get(quota_day(), {}).get("models", {}).get(model, {}).get("ok", 0))
+                    log(f"[quota d nhar sala] {model} ({ok_today} call nej7at lyoum), kayrja3 f "
+                        f"{datetime.fromtimestamp(_cooldown[model], TZ):%H:%M} → model li mor")
+                else:
+                    _cooldown[model] = time.time() + 60
+            elif r.status_code >= 500:  # overload ("high demand"): mra tanya mor 10 s, sinon 2 d9aye9 bla had l model
+                gcount(model, "err")
+                if attempt:
+                    _cooldown[model] = time.time() + 120
+                else:
+                    busy.append(model)
+            elif r.status_code != 200:
+                gcount(model, "err")
+            if r.status_code != 200:
+                errors.append(f"{model}: HTTP {r.status_code} {r.text[:200]}")
+                continue
+            try:
+                parts = r.json()["candidates"][0]["content"]["parts"]
+                raw = "".join(p.get("text", "") for p in parts if not p.get("thought"))
+                out = json.loads(raw)
+                if all(k in out for k in schema["required"]):
+                    gcount(model, "ok", purpose)
+                    out["_model"] = model
+                    return out
+                errors.append(f"{model}: jawab naqes")
+            except (KeyError, IndexError, ValueError) as e:
+                errors.append(f"{model}: {e.__class__.__name__}")
     raise GeminiError(" | ".join(errors))
 
 
@@ -2786,6 +2800,9 @@ def main() -> int:
     state = load_state()
     global _gstats, _used_free
     _gstats = state.setdefault("gemini", {})
+    # models li quota dyalhom salat f run 9bel: ma n3awdouch njarbohom 7tta yrj3o
+    _cooldown.update({m: t for m, t in state.get("gemini_cd", {}).items() if t > time.time()})
+    state["gemini_cd"] = _cooldown
     _used_free = state.setdefault("used_imgs", {})
     cutoff = time.time() - USED_IMG_HOURS * 3600
     for k in [k for k, ts in _used_free.items() if ts < cutoff]:
