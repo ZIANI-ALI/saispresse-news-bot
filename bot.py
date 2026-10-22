@@ -991,6 +991,21 @@ def insta_image(img: Image.Image) -> bytes:
     return render(img, INSTA_SIZE)
 
 
+def site_image(img: Image.Image, fit: bool = False) -> bytes:
+    """Tswira d site 16:9. fit: tswira kamla bla 9ta3 (l twila), jnab m3ammrin b nefs tswira mdbbla w mghmma."""
+    if not fit:
+        return render(img, SITE_SIZE)
+    w, h = SITE_SIZE
+    bg = crop_to(img, SITE_SIZE).filter(ImageFilter.GaussianBlur(30))
+    bg = Image.eval(bg, lambda v: round(v * 0.55))
+    scale = min(w / img.width, h / img.height)
+    fg = img.resize((round(img.width * scale), round(img.height * scale)), Image.LANCZOS)
+    bg.paste(fg, ((w - fg.width) // 2, (h - fg.height) // 2))
+    out = BytesIO()
+    bg.save(out, "JPEG", quality=95, optimize=True, subsampling=0)
+    return out.getvalue()
+
+
 def story_image(post: bytes) -> bytes:
     """Story 9:16 mn cover 4:5 (ghir l cover d match / chi3arat): cover f l wost (bin safe zones d Instagram) fo9 nefs l cover mdbbla w mghmma."""
     im = Image.open(BytesIO(post)).convert("RGB")
@@ -1656,7 +1671,15 @@ def _visible(text_html: str) -> int:
 def card_caption(c: dict) -> str:
     lines = [c["head"], ""]
     ents = c["entries"]
-    if ents:
+    if ents and c.get("site_mode"):
+        cands, sp = site_cands(c), c["site_pick"]
+        e = ents[sp["k"]]
+        lines.append(f"🌐 <b>Tswira d site</b> {cands.index(sp['k']) + 1}/{len(cands)} · tswira: {esc(e['origin'])} · "
+                     + ("🔲 kamla" if sp["fit"] else "✂️ m9tou3a 16:9"))
+        lines.append("✅ Tswira 7orra, msmou7 tnchrha" if e["free"] else "⚠️ Tswira 3endha copyright (référence)")
+        if e.get("credit"):
+            lines.append(esc(e["credit"][:200]))
+    elif ents:
         k = c["chosen"] if c["chosen"] is not None else c["i"]
         e = ents[k]
         lines.append(f"🖼 Cover {k + 1}/{len(ents)} · forme {esc(e['kind'])} · tswira: {esc(e['origin'])}")
@@ -1664,6 +1687,9 @@ def card_caption(c: dict) -> str:
                      else "⚠️ Tswira 3endha copyright (référence)")
         if e.get("credit"):
             lines.append(esc(e["credit"][:200]))
+        if c["chosen"] is not None and c.get("site_pick"):
+            sp = c["site_pick"]
+            lines.append(f"🌐 Tswira d site: {esc(ents[sp['k']]['origin'])} · " + ("🔲 kamla" if sp["fit"] else "✂️ m9tou3a"))
     elif c.get("preview"):
         lines.append("🖼 Tswira d l source (mazal bla cover)")
     notes = list(c["notes"])
@@ -1681,6 +1707,13 @@ def card_kb(c: dict) -> dict:
         return {"text": text, "callback_data": data}
 
     rows, ents, o = [], c["entries"], c["opts"]
+    if ents and c.get("site_mode"):
+        cands, sp = site_cands(c), c["site_pick"]
+        if len(cands) > 1:
+            rows.append([b("◀", "sb"), b(f"{cands.index(sp['k']) + 1}/{len(cands)}", "x"), b("▶", "sn")])
+        rows.append([b("✂️ M9tou3a" + (" ✅" if not sp["fit"] else ""), "sc"), b("🔲 Kamla" + (" ✅" if sp["fit"] else ""), "sf")])
+        rows.append([b("✅ Hadi l site", "sok")])
+        return {"inline_keyboard": rows}
     if ents and c["chosen"] is None:
         if len(ents) > 1:
             rows.append([b("◀", "p"), b(f"{c['i'] + 1}/{len(ents)}", "x"), b("▶", "n")])
@@ -1694,11 +1727,37 @@ def card_kb(c: dict) -> dict:
         else:
             auto = ig_ready() or bool(SITE_PUBLISH_URL and BOT_PUBLISH_SECRET)
             rows.append([b("🔁 Pack 3awtani" if c.get("published") else "🚀 Publier" if auto else "📦 Pack final", "pub")])
-            rows.append([b("↩️ Bddel cover", "bk")])
+            rows.append([b("↩️ Bddel cover", "bk")] + ([b("🖼 Tswira d site", "sp")] if site_cands(c) else []))
     texts = ([b("📄 النسخة 1", "nas")] if c["nass"] else []) + ([b("📝 Caption", "cap")] if c["caption"] else [])
     if texts:
         rows.append(texts)
     return {"inline_keyboard": rows}
+
+
+def site_cands(c: dict) -> list[int]:
+    """Covers li 3ndhom tswira asliya (chi3arat la): homa li y9dro ykounou tswira d site."""
+    return [k for k, e in enumerate(c["entries"]) if e.get("raw")]
+
+
+def _site_key(c: dict) -> str:
+    return f"{c['site_pick']['k']}:{int(c['site_pick']['fit'])}"
+
+
+def card_site_show(mid: int, c: dict) -> None:
+    """Preview 16:9 b7al site (kattsawb mra wa7da l kol tswira/mode, w file_id kaytkhzen)."""
+    key = _site_key(c)
+    if c.setdefault("site_prev", {}).get(key) or DRY_RUN:
+        card_show(mid, c, media_change=True)
+        return
+    data = tg_download(c["entries"][c["site_pick"]["k"]]["raw"])
+    if not data:
+        tg_send("⚠️ Tswira d site ma tnzlatch mn Telegram, 3awd.", reply_to=mid)
+        return
+    img = site_image(Image.open(BytesIO(data)).convert("RGB"), c["site_pick"]["fit"])
+    fid = _fid(card_media(mid, "photo", img, card_caption(c), card_kb(c), name="saispress-site.jpg"), "photo")
+    if fid:
+        with _cards_lock:
+            c["site_prev"][key] = fid
 
 
 def _fid(msg, kind: str) -> str | None:
@@ -1730,6 +1789,8 @@ def card_show(mid: int, c: dict, media_change: bool = False) -> None:
         return
     ents = c["entries"]
     photo = ents[c["chosen"] if c["chosen"] is not None else c["i"]]["photo"] if ents else c.get("preview")
+    if c.get("site_mode"):
+        photo = c.setdefault("site_prev", {}).get(_site_key(c))
     if media_change and photo:
         card_media(mid, "photo", photo, cap, kb)
     else:
@@ -1817,11 +1878,11 @@ def photo_credit(e: dict) -> str:
     return f"الصورة: {m.group(1).strip()}" if m and e.get("free") else ""
 
 
-def site_publish(c: dict, e: dict, raw: Image.Image) -> tuple[str | None, str]:
+def site_publish(c: dict, e: dict, raw: Image.Image, fit: bool = False) -> tuple[str | None, str]:
     """Brouillon f saispress.com (/api/bot/publish, status=draft). Kayrja3 (lien d admin, ghalat)."""
     site = c["site"]
     body = site["body"] + (f"\n{photo_credit(e)}" if photo_credit(e) else "")
-    image = render(raw, SITE_SIZE)
+    image = site_image(raw, fit)
     known = _cards.get("site_cats") or []
     cat = _site_cat(site["category"], known)
     for _ in range(2):
@@ -1972,16 +2033,23 @@ def card_pack(mid: int, c: dict) -> str:
     want = [p for p, on in (("Site", o["site"] and c["nass"]), ("Post", o["post"]), ("Story", o["story"])) if on]
     manual = set(want) if again else set()
     # tswira l asliya d cover (chi3arat ma 3ndhomch: site kayakhod tswira d cover akhor)
-    raw_id = e.get("raw") or next((x["raw"] for x in c["entries"] if x.get("raw")), None)
-    raw = None
-    if raw_id and ("Site" in want or ("Story" in want and e.get("raw"))):
-        data = tg_download(raw_id)
-        raw = Image.open(BytesIO(data)).convert("RGB") if data else None
-    story = card_story(c, e, raw) if "Story" in want else None
+    def load(file_id):
+        data = tg_download(file_id) if file_id else None
+        return Image.open(BytesIO(data)).convert("RGB") if data else None
+
+    # tswira d site: li khtar l user (🖼 Tswira d site), sinon tswira d cover (chi3arat: tswira d cover akhor)
+    sp = c.get("site_pick")
+    se = c["entries"][sp["k"]] if sp else (e if e.get("raw") else next((x for x in c["entries"] if x.get("raw")), e))
+    fit = bool(sp and sp["fit"])
+    raw = load(se.get("raw")) if "Site" in want else None
+    story_raw = raw if se is e else None
+    if "Story" in want and e.get("raw") and story_raw is None:
+        story_raw = load(e["raw"])
+    story = card_story(c, e, story_raw) if "Story" in want else None
 
     if "Site" in want and not again and not c.get("site_url"):
         if SITE_PUBLISH_URL and BOT_PUBLISH_SECRET and raw and c.get("site"):
-            url, err = site_publish(c, e, raw)
+            url, err = site_publish(c, se, raw, fit)
             if url:
                 c["site_url"] = url
                 c["site_line"] = f"🌐 Site: <a href=\"{html.escape(url)}\">brouillon f admin</a> (raje3 w nchr)"
@@ -2026,7 +2094,7 @@ def card_pack(mid: int, c: dict) -> str:
     with _cards_lock:
         c["published"] = c.get("published") or time.time()
     if manual:
-        card_files(mid, c, e, manual, raw, story)
+        card_files(mid, c, e, manual, raw, story, fit)
     auto = [p for p in want if p not in manual]
     when = datetime.now(TZ).strftime("%H:%M")
     if again or not auto:
@@ -2034,13 +2102,14 @@ def card_pack(mid: int, c: dict) -> str:
     return f"🚀 Tnchr {when}: {' · '.join(auto)}" + (f" · 📦 f l pack: {' · '.join(sorted(manual, key=want.index))}" if manual else "")
 
 
-def card_files(mid: int, c: dict, e: dict, parts: set, raw: Image.Image | None, story: bytes | None) -> None:
+def card_files(mid: int, c: dict, e: dict, parts: set, raw: Image.Image | None, story: bytes | None,
+               fit: bool = False) -> None:
     """Fichiers (quality kamla) w nsous l nchr b l yed."""
     media, files = [], {}
     if "Post" in parts:
         media.append({"type": "document", "media": e["doc"]})
     if "Site" in parts and raw:
-        files["w"] = ("saispress-site-16x9.jpg", render(raw, SITE_SIZE), "image/jpeg")
+        files["w"] = ("saispress-site-16x9.jpg", site_image(raw, fit), "image/jpeg")
         media.append({"type": "document", "media": "attach://w"})
     if "Story" in parts and story:
         files["s"] = ("saispress-story-9x16.jpg", story, "image/jpeg")
@@ -2100,6 +2169,9 @@ def on_callback(q: dict) -> None:
         tg_answer(q, "Had l khabar 9dim (ma b9ach f memoire d bot).")
         return
     ents, o = c["entries"], c["opts"]
+    if c.get("site_mode") and act not in ("sn", "sb", "sc", "sf", "sok"):  # bouton 9dim mn 9bel mode d site
+        tg_answer(q, "Kmml tswira d site 9bel (✅ Hadi l site).")
+        return
     if act in ("p", "n") and len(ents) > 1 and c["chosen"] is None:
         with _cards_lock:
             c["i"] = (c["i"] + (1 if act == "n" else -1)) % len(ents)
@@ -2111,9 +2183,31 @@ def on_callback(q: dict) -> None:
             c["status"] = f"✅ Cover {c['i'] + 1} mkhtara" + (f" ({esc(c['by'])})" if c["by"] else "")
         tg_answer(q, "✅ Cover mkhtara")
         card_show(mid, c)
+    elif act == "sp" and c["chosen"] is not None and site_cands(c) and not c.get("site_mode"):
+        with _cards_lock:
+            if not c.get("site_pick"):
+                k = c["chosen"] if c["entries"][c["chosen"]].get("raw") else site_cands(c)[0]
+                c["site_pick"] = {"k": k, "fit": False}
+            c["site_mode"], c["confirm"] = True, False
+        tg_answer(q)
+        card_site_show(mid, c)
+    elif act in ("sn", "sb", "sc", "sf") and c.get("site_mode"):
+        with _cards_lock:
+            sp, cands = c["site_pick"], site_cands(c)
+            if act in ("sn", "sb"):
+                sp["k"] = cands[(cands.index(sp["k"]) + (1 if act == "sn" else -1)) % len(cands)]
+            else:
+                sp["fit"] = act == "sf"
+        tg_answer(q)
+        card_site_show(mid, c)
+    elif act == "sok" and c.get("site_mode"):
+        with _cards_lock:
+            c["site_mode"] = False
+        tg_answer(q, "✅ Tswira d site mkhtara")
+        card_show(mid, c, media_change=True)
     elif act == "bk" and c["chosen"] is not None:
         with _cards_lock:
-            c["i"], c["chosen"], c["status"] = c["chosen"], None, ""
+            c["i"], c["chosen"], c["status"], c["site_mode"] = c["chosen"], None, "", False
         tg_answer(q)
         card_show(mid, c, media_change=True)
     elif act in ("ts", "tp", "tt") and c["chosen"] is not None:
