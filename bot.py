@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import base64
 import calendar
+import difflib
 import hashlib
 import html
 import json
@@ -402,10 +403,11 @@ def best_image(urls: list[str]) -> Image.Image | None:
 _used_free: dict = {}
 
 
-def dhash(jpeg: bytes) -> int | None:
+def dhash(jpeg: bytes | Image.Image) -> int | None:
     """Basma d tswira (64 bit): katb9a ta9riban nafsha ila tbeddel l 9yas wla l compression."""
     try:
-        g = Image.open(BytesIO(jpeg)).convert("L").resize((9, 8), Image.LANCZOS)
+        im = jpeg if isinstance(jpeg, Image.Image) else Image.open(BytesIO(jpeg))
+        g = im.convert("L").resize((9, 8), Image.LANCZOS)
     except OSError:
         return None
     px = list(g.getdata())
@@ -418,9 +420,28 @@ def _near(h: int, hashes) -> bool:
 
 
 def used_img(c: dict) -> bool:
-    if c["id"] in _used_free:
+    if c["id"] in _used_free or pub_img(c.get("hash")):
         return True
     return c.get("hash") is not None and _near(c["hash"], (int(k[2:], 16) for k in _used_free if k.startswith("h:")))
+
+
+# _cards["pub_imgs"]: {basma (hex): ts} d tsawer li tnchrou (🚀 Publier). Ma kayt9tar7ouch 3awtani f nefs nhar.
+def pub_img(h: int | None) -> bool:
+    if h is None:
+        return False
+    midnight = datetime.now(TZ).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    with _cards_lock:
+        today = [int(k, 16) for k, ts in _cards.get("pub_imgs", {}).items() if ts >= midnight]
+    return _near(h, today)
+
+
+def mark_pub(*hexes: str | None) -> None:
+    now = time.time()
+    with _cards_lock:
+        pub = _cards.setdefault("pub_imgs", {})
+        for h in hexes:
+            if h:
+                pub[h] = now
 
 
 def pexels_candidates(query: str) -> list[dict]:
@@ -438,7 +459,8 @@ def pexels_candidates(query: str) -> list[dict]:
         return []
     return [{"id": f"pexels-{ph['id']}", "thumb": ph["src"]["medium"],
              "full": [ph["src"]["original"] + "?auto=compress&cs=tinysrgb&w=2000"],
-             "credit": f"Photo: {ph.get('photographer', '')} / Pexels", "warn": ""} for ph in photos]
+             "credit": f"Photo: {ph.get('photographer', '')} / Pexels", "warn": "",
+             "desc": f"{ph.get('alt') or ''} {ph.get('url') or ''}"} for ph in photos]
 
 
 def pixabay_candidates(query: str) -> list[dict]:
@@ -449,7 +471,7 @@ def pixabay_candidates(query: str) -> list[dict]:
         r = http.get("https://pixabay.com/api/",
                      params={"key": PIXABAY_KEY, "q": query[:100], "image_type": "photo",
                              "orientation": "horizontal", "safesearch": "true", "per_page": 10,
-                             "min_width": 1280},
+                             "min_width": 1920},
                      timeout=20)
         r.raise_for_status()
         hits = r.json().get("hits", [])
@@ -461,7 +483,7 @@ def pixabay_candidates(query: str) -> list[dict]:
         url = h.get("fullHDURL") or h["largeImageURL"]
         full = ([url.replace("_1280.", "_1920.")] if "_1280." in url else []) + [url]  # CDN kay3ti 1920
         out.append({"id": f"pixabay-{h['id']}", "thumb": h.get("webformatURL") or url, "full": full,
-                    "credit": f"Photo: {h.get('user', '')} / Pixabay", "warn": ""})
+                    "credit": f"Photo: {h.get('user', '')} / Pixabay", "warn": "", "desc": h.get("tags") or ""})
     return out
 
 
@@ -485,8 +507,8 @@ def openverse_candidates(query: str) -> list[dict]:
                              "page_size": 20, "mature": "false"}, timeout=20)
         r.raise_for_status()
         hits = [h for h in r.json().get("results", [])
-                if h.get("license") in OPENVERSE_LICENSES and int(h.get("width") or 0) >= 1000
-                and int(h.get("height") or 0) >= 600 and h.get("url")]
+                if h.get("license") in OPENVERSE_LICENSES and int(h.get("width") or 0) >= 1600
+                and int(h.get("height") or 0) >= 900 and h.get("url")]
     except (requests.RequestException, ValueError) as e:
         log(f"[openverse KO] {e.__class__.__name__} {getattr(e.response, 'status_code', '')}")
         return []
@@ -506,6 +528,7 @@ def openverse_cand(h: dict) -> dict:
             else "⚠️ Credit wajib f l post" if h["license"] == "by" else "")
     big = wiki_thumb(h["url"], 1920)
     return {"id": f"openverse-{h['id']}", "title": h.get("title") or "",
+            "desc": " ".join([h.get("title") or ""] + [t.get("name", "") for t in h.get("tags") or []]),
             "thumb": wiki_thumb(h["url"], 500) if big != h["url"] else h.get("thumbnail") or h["url"],
             # thumbs kbar chi merra 429 (ma mkhdoumin f cache): 1280/960 9bel l original
             "full": [big, wiki_thumb(h["url"], 1280), wiki_thumb(h["url"], 960), h["url"]] if big != h["url"] else [big],
@@ -571,6 +594,31 @@ def thumb_jpeg(cand: dict) -> bytes | None:
     return buf.getvalue()
 
 
+CATEGORIES = ("سياسة", "اقتصاد", "مجتمع", "حوادث", "رياضة", "دولي", "ثقافة", "صحة", "تعليم", "طقس", "تكنولوجيا", "فن")
+
+
+def _ar_key(s: str) -> str:
+    s = re.sub(r"[^\u0621-\u063a\u0641-\u064a]", "", s)  # 7rouf bark (bla tachkil, tatwil, espaces)
+    return re.sub("[أإآ]", "ا", s).replace("ى", "ي").replace("ة", "ه")
+
+
+_CAT_KEYS = {_ar_key(c): c for c in CATEGORIES}
+
+
+def norm_cat(cat) -> str:
+    """Category d Gemini → wa7da mn CATEGORIES (ghalat d ktaba bhal "طوقس" → "طقس"). Ma t3erfatch → "" (bla pill)."""
+    key = _ar_key(str(cat or ""))
+    if not key:
+        return ""
+    for k in (key, key.removeprefix("ال")):
+        if k in _CAT_KEYS:
+            return _CAT_KEYS[k]
+    near = difflib.get_close_matches(key.removeprefix("ال"), list(_CAT_KEYS), n=1, cutoff=0.75)
+    fixed = _CAT_KEYS[near[0]] if near else ""
+    log(f"[category] '{str(cat)[:30]}' machi f l liste → '{fixed or 'bla category'}'")
+    return fixed
+
+
 # Recherche 3amma (4th) mn l category: bach dima ykoun chi tswira ta3biriya mnasiba
 _GENERIC_QUERY = {
     "سياسة": "government building flag", "اقتصاد": "business finance charts", "مجتمع": "city street urban",
@@ -578,23 +626,46 @@ _GENERIC_QUERY = {
     "ثقافة": "library books", "صحة": "hospital medical equipment", "تعليم": "classroom school desks",
     "طقس": "sky clouds weather", "تكنولوجيا": "technology circuit board", "فن": "stage lights curtain",
 }
+# Khabar f lmghrib: recherche 3amma mn lmghrib (machi sma / zn9a mn ay blad)
+_GENERIC_QUERY_MA = {
+    "سياسة": "Rabat Morocco parliament", "اقتصاد": "Morocco port economy", "مجتمع": "Morocco city street",
+    "حوادث": "Morocco road", "رياضة": "Morocco stadium", "ثقافة": "Morocco medina heritage",
+    "صحة": "Morocco hospital", "تعليم": "Morocco school", "طقس": "Morocco rain clouds",
+    "تكنولوجيا": "Morocco technology", "فن": "Morocco music festival",
+}
+# Tswira mn lmghrib: l blad wla mdina/mantaqa maghribiya f titre / tags / description d l bank
+_MA_RE = re.compile(r"morocc|maroc|marok|marruec|marrocos|المغرب|marrakech|marrakesh|casablanca|\brabat\b|\bfes\b|"
+                    r"\bfez\b|tangier|tanger|agadir|essaouira|chefchaouen|chaouen|ouarzazate|merzouga|mekn[eè]s|"
+                    r"t[eé]touan|oujda|dakhla|laayoune|ifrane|asilah|el jadida|nador|taroudant|tinghir|todgha|"
+                    r"todra|dades|zagora|erfoud|imlil|toubkal|atlas mountains|high atlas|middle atlas|anti-atlas", re.I)
 
 
 def free_cands(query: str, category: str = "") -> list[dict]:
-    """3 recherches (d9i9a -> 3amma) + wa7da 3amma mn l category f Pexels/Pixabay w Openverse (b thumbs)."""
+    """3 recherches (d9i9a -> 3amma) + wa7da 3amma mn l category f Pexels/Pixabay w Openverse (b thumbs).
+    Khabar f lmghrib (Morocco f l b7ath): ghir tsawer li l bank kaygoul mn lmghrib (ila kaynin)."""
     cands, seen = [], set()
     queries = [(q.strip(), 2) for q in query.split("|") if q.strip()][:3]
-    if category in _GENERIC_QUERY:
-        queries.append((_GENERIC_QUERY[category], 1))
+    ma = bool(re.search(r"morocc", query, re.I)) and category != "دولي"
+    generic = (_GENERIC_QUERY_MA if ma else _GENERIC_QUERY).get(category)
+    if generic:
+        queries.append((generic, 1))
     skipped = [0, 0]  # t7aydu 7it tsiftu 9bel: b ID, b basma
-    def fresh(found: list[dict], n: int) -> list[dict]:  # n lowlin li ma tsiftouch 9bel
+    def fresh(found: list[dict], n: int) -> list[dict]:  # n lowlin li ma tsiftouch 9bel (mn lmghrib l lowlin)
         skipped[0] += sum(c["id"] in _used_free for c in found)
-        return [c for c in found if c["id"] not in _used_free and c["id"] not in seen][:n]
+        found = [c for c in found if c["id"] not in _used_free and c["id"] not in seen]
+        if ma:
+            found.sort(key=lambda c: not _MA_RE.search(c.get("desc") or ""))
+        return found[:n]
     for q, n in queries:
         for found in (fresh(pexels_candidates(q), n) + fresh(pixabay_candidates(q), n)
                       + fresh(openverse_candidates(q), n)):
             seen.add(found["id"])
             cands.append({**found, "q": q, "credit_line": f"{found['credit']} · b7ath: {q}"})
+    if ma:
+        local = [c for c in cands if _MA_RE.search(c.get("desc") or "")]
+        log(f"[tswira 7orra] khabar f lmghrib: {len(local)}/{len(cands)} tswira mn lmghrib"
+            + ("" if local else " → walou, kankhalliw l b9iya (Gemini kaykhtar ghir l mo7ayida)"))
+        cands = local or cands
     with ThreadPoolExecutor(max_workers=8) as pool:
         thumbs = list(pool.map(thumb_jpeg, cands))
     out, hashes = [], []
@@ -704,6 +775,7 @@ def person_cands(name_en: str) -> list[dict]:
         thumbs = list(pool.map(thumb_jpeg, cands))
     cands = [{**c, "jpeg": t, "hash": dhash(t), "credit_line": f"{c['credit']} · {c['title'][:80]}"}
              for c, t in zip(cands, thumbs) if t]
+    cands = [c for c in cands if not pub_img(c["hash"])]
     cands.sort(key=used_img)
     if not cands:
         log(f"[tswira rasmiya] walou l '{name_en}'")
@@ -1329,6 +1401,7 @@ def rewrite(item: dict, text: str, pics: dict | None = None) -> dict:
     out = gemini_json(system, user, schema, 0.2, images=images, strong=item.get("strong", True))
     if not all(str(out.get(k, "")).strip() for k in RESPONSE_SCHEMA["required"]):
         raise GeminiError("jawab khawi")
+    out["category"] = norm_cat(out.get("category"))
     return out
 
 
@@ -1488,7 +1561,8 @@ def judge_batch(items: list[dict], stories: list[dict]) -> dict[str, dict] | Non
                 "dup_new": dn if 0 <= dn < i else -1,
                 "score": int(r["importance"]), "intl": bool(r.get("international")),
                 "urgent": bool(r.get("urgent")), "foot": bool(r.get("football")),
-                "hints": {k: str(r.get(k) or "").strip() for k in ("category", "image_query", "main_person_en")}}
+                "hints": {"category": norm_cat(r.get("category")),
+                          **{k: str(r.get(k) or "").strip() for k in ("image_query", "main_person_en")}}}
         except (KeyError, ValueError, TypeError):
             continue
     log(f"[judge] call wa7d: {len(ask)} khabar ({len(verdicts)} jawab, {len(listing)} sabi9)")
@@ -1627,6 +1701,9 @@ def cards_save() -> None:
         _cards["cards"] = {k: c for k, c in _cards["cards"].items() if c.get("ts", 0) >= cutoff}
         for old_day in sorted(_cards["days"])[:-14]:
             del _cards["days"][old_day]
+        pub = _cards.get("pub_imgs", {})
+        for h in [h for h, ts in pub.items() if ts < time.time() - 2 * 86400]:
+            del pub[h]
         for _ in range(5):  # thread akhor y9der ybddel card f nefs l w9t: n3awdo
             try:
                 data = json.dumps(_cards, ensure_ascii=False)
@@ -1877,8 +1954,8 @@ def card_send(c: dict, entries: list[dict], preview: bytes | None = None, mid: i
     ents = []
     for k, e in enumerate(entries if c["media"] else []):
         step = f"{wait} {k + 1}/{len(entries)}"
-        ent = {key: e[key] for key in ("kind", "origin", "free", "credit", "stock", "title", "category", "urgent")
-               if key in e}
+        ent = {key: e[key] for key in ("kind", "origin", "free", "credit", "stock", "title", "category", "urgent",
+                                       "hash") if key in e}
         ent["doc"] = _fid(card_media(mid, "document", e["cover"], step, name="saispress-post-4x5.jpg"), "document")
         if e.get("raw"):  # tswira l asliya: site 16:9 w story kaytsawbo mnha f Pack
             ent["raw"] = _fid(card_media(mid, "document", e["raw"], step, name="saispress-photo.jpg"), "document")
@@ -2165,6 +2242,8 @@ def card_pack(mid: int, c: dict) -> str:
         c["ig_line"] = (f"📸 Instagram: {' · '.join(done)} ✅" if done else "📸 Instagram: ma tnchr walou") + \
             (f" · ⚠️ {esc(err)} → f l pack" if err else "") + (f" · 📊 {quota[0]}/{quota[1]} f 24h" if quota else "")
 
+    if not again:
+        mark_pub(e.get("hash") if {"Post", "Story"} & set(want) else None, se.get("hash") if "Site" in want else None)
     with _cards_lock:
         c["published"] = c.get("published") or time.time()
     if manual:
@@ -2569,6 +2648,7 @@ def title_only(c: dict, item: dict, img, small, upscaled: bool, urgent: bool = F
     system, user, schema, images = with_pics(TITLE_PROMPT, f"العنوان الأصلي: {item['title']}", TITLE_SCHEMA, pics)
     try:
         out = gemini_json(system, user, schema, 0.4, images=images, strong=item.get("strong", True))
+        out["category"] = norm_cat(out.get("category"))
     except GeminiError as e:
         log(f"[gemini KO] {item['link']}: {e}")
         card_note(c, "ℹ️ النص ما توصلناش بيه (غير العنوان) w Gemini ma jawebsh. Chouf l lien.")
@@ -2619,6 +2699,9 @@ def build_covers(item: dict, out: dict, img, small, upscaled: bool, urgent: bool
     # tswira d l idara (Commons) ila l khabar 3la mu2assasa maghribiya: katakhod blasat tswira 7orra t-tanya
     idara = idara_cand((out.get("institution") or "").strip())
     idara_img = take_cand(idara) if idara else None  # ila ma tnzlatch (429): jouj tsawer 7orra kif 9bel
+    if idara_img and pub_img(dhash(idara_img[0])):
+        log(f"[pub_imgs] tswira idara tnchrat lyoum: {idara['title'][:70]}")
+        idara, idara_img = None, None
     # tsawer ta3biriya (7tta 2) bach t5tar binathom. Fallback (call Gemini zayed) ghir ila ma kaynach chakhsiya.
     if pics is not None:
         frees = [got for got in map(take_cand, pre_free[:1] if idara_img else pre_free) if got]
@@ -2637,6 +2720,15 @@ def build_covers(item: dict, out: dict, img, small, upscaled: bool, urgent: bool
         img_free, free_up = enhance(img_free)
         choices.append({"img": img_free, "native": free_size, "up": free_up, "stock": True, "origin": origin,
                         "credit": photo_credit})
+    # tswira li tnchrat lyoum (source, chakhsiya, 7orra) ma t3awedch tt9tar7
+    fresh = []
+    for ch in choices:
+        ch["hash"] = dhash(ch["img"])
+        if pub_img(ch["hash"]):
+            log(f"[pub_imgs] tswira {ch['origin']} tnchrat lyoum → ma t9tar7atch")
+        else:
+            fresh.append(ch)
+    choices = fresh
     # covers: tswira d l khabar (source >= 600px), tswira d l chakhsiya (rasmiya, sinon Google),
     # w 7tta 2 tsawer ta3biriya 7orra (bach l user ykhtar)
     real = [ch for ch in choices if not ch["stock"]]
@@ -2656,6 +2748,7 @@ def build_covers(item: dict, out: dict, img, small, upscaled: bool, urgent: bool
         raw = BytesIO()
         ch["img"].convert("RGB").save(raw, "JPEG", quality=95, optimize=True, subsampling=0)
         entries.append({"cover": data, "raw": raw.getvalue(), "kind": kind, "origin": ch["origin"],
+                        "hash": f"{ch['hash']:016x}" if ch["hash"] is not None else None,
                         "free": ch["stock"] or ch["origin"] == "rasmiya", "credit": ch["credit"],
                         "stock": ch["stock"], "title": out["instagram_title"], "category": out.get("category", ""),
                         "urgent": urgent})
