@@ -7,6 +7,7 @@ Kayraqeb ~24 source dyal l akhbar f l Maghrib kol 60 tanya. Kol khabar jdid = **
 3. **✅ Valider had l cover** → toggles **🌐 Site / 📸 Post / 📱 Story** (Story ✅ automatiquement ila score 9-10 wla عاجل).
 4. **📦 Pack final** → reply b fichiers quality kamla: cover 4:5 (Post), tswira 16:9 (Site), story 9:16 (tswira l fo9, panel navy b catégorie, titre f l wost, logo w "التفاصيل" l lien; match/chi3arat: cover f l wost), w nsous jahzin l copie: **النسخة 1** (l site) w **Caption** d Instagram. Compteur d lyoum kayban (API Instagram: max 50 post+story f 24h).
    **🌐 Site automatique** (ila kaynin `SITE_PUBLISH_URL` f Variables = `https://saispress.com/api/bot/publish` w `BOT_PUBLISH_SECRET` f Secrets, nefs secret li f hPanel): Pack kaydir l article **brouillon** f saispress.com (3onwan + النسخة 1 + المصدر + credit d tswira 7orra + tswira 16:9 1600×900 + ركن) w lien d admin kayban f card. Ma kaytnchrch joj mrat. Ila site ma jawebch: tswira w النسخة 1 kayjiw f Pack b7al 9bel.
+   **📸 Instagram automatique** (ila kaynin secret `IG_ACCESS_TOKEN` w variable `IG_USER_ID`, m3a Site configuré): bouton wlla **🚀 Publier** → **ta2kid** (✅ Nchr daba / ❌ Rj3) → Post (cover 4:5 + caption + المصدر + credit d tswira) w Story (9:16) kaytnchro f Instagram b API rasmi (Instagram API with Instagram Login). Tswira katmchi l site (`/api/bot/media`) 7it Instagram kayjibha b URL public. Card katban lien d post w quota l7a9i9i (x/50 f 24h); ila quota ma kafyach wla Instagram rfed, dakchi kayji f Pack b l yed. **🔁 Pack 3awtani** = fichiers bo7dhom, bla nchr 3awtani. Token kaydoum 60 youm: bot kaytmddo 9bel ma ysali b 10 iyam, w ila ma tmddch kaynbhek f Telegram (token ma kaytkhzen f ta state).
 5. **📄 النسخة 1 / 📝 Caption**: kaytsiftou ghir ila clickiti. **↩️ Bddel cover** kayrj3ek l ikhtiyar.
 
 Covers kaytkhzno f Telegram (file_id) w cards f `state/cards.json` (3 iyam). Boutons kayjiw b `getUpdates` f thread bo7dha: click bin run w run (~1-2 d9aye9) kaytsna 7tta ybda run jay. Ila bot 3ndo webhook (wla bot akhor kaysta3mel nefs token), Telegram kayrfed getUpdates (409) w bot kaysifet tnbih wa7d f nhar. `EDITOR_IDS` (Variables, ikhtiyari): IDs li y9dro yclickiw; khawi = ay wa7d f chat. A7san chat ykoun private: `TELEGRAM_CHAT_ID` = ID dyalk.
@@ -43,7 +44,7 @@ Sources: `sources.json` (`enabled: false` bach t7bes wa7ed). Sites li kaybloquiw
 5. **Test**: Actions → *News bot* → *Run workflow* (5 d9aye9). Awel dowra katsifet "✅ Bot khdam" w ma katsifetsh l akhbar l 9dam.
 6. **Tkhdem 24/24**: tab *Variables* → `NEWS_BOT_ENABLED` = `true`, men b3d *Run workflow* mra we7da. Kol run melli ysali kay-lanci run jay bo7do. Bach t7bso: `NEWS_BOT_ENABLED` = `false`.
 
-Variables ikhtiyariyin: `MIN_SCORE`, `HIGH_SCORE`, `GEMINI_MODELS`, `POLL_SECONDS`, `RUN_MINUTES`, `EDITOR_IDS`, `SITE_PUBLISH_URL` (+ secret `BOT_PUBLISH_SECRET`).
+Variables ikhtiyariyin: `MIN_SCORE`, `HIGH_SCORE`, `GEMINI_MODELS`, `POLL_SECONDS`, `RUN_MINUTES`, `EDITOR_IDS`, `SITE_PUBLISH_URL` (+ secret `BOT_PUBLISH_SECRET`), `IG_USER_ID` (+ secret `IG_ACCESS_TOKEN`).
 
 ## Mohim
 

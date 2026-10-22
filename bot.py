@@ -23,6 +23,7 @@ Env:
   JUDGE_BATCH          default 15 (max akhbar f call wa7d d judge)
   EDITOR_IDS           ikhtiyari: IDs Telegram (b virgule) li y9dro yclickiw 3la boutons (khawi = ay wa7d f chat)
   SITE_PUBLISH_URL, BOT_PUBLISH_SECRET  ikhtiyari: 🌐 Site f Pack kaydir brouillon f saispress.com (/api/bot/publish)
+  IG_ACCESS_TOKEN, IG_USER_ID  ikhtiyari: 🚀 Publier kaynchr Post w Story f Instagram (tswira b /api/bot/media d site)
 """
 
 from __future__ import annotations
@@ -69,6 +70,10 @@ RELAY_KEY = os.environ.get("RELAY_KEY", "")
 EDITOR_IDS = {int(x) for x in re.findall(r"-?\d+", os.environ.get("EDITOR_IDS", ""))}
 SITE_PUBLISH_URL = os.environ.get("SITE_PUBLISH_URL", "").strip()
 BOT_PUBLISH_SECRET = os.environ.get("BOT_PUBLISH_SECRET", "").strip()
+SITE_MEDIA_URL = SITE_PUBLISH_URL.rsplit("/", 1)[0] + "/media" if SITE_PUBLISH_URL else ""
+IG_TOKEN = os.environ.get("IG_ACCESS_TOKEN", "").strip()
+IG_USER_ID = os.environ.get("IG_USER_ID", "").strip()
+IG_API = os.environ.get("IG_API", "https://graph.instagram.com").rstrip("/")
 FREE_IMAGES = bool(PEXELS_KEY or PIXABAY_KEY)
 GEMINI_MODELS = [m.strip() for m in os.environ.get("GEMINI_MODELS", "").split(",") if m.strip()]
 
@@ -1637,6 +1642,7 @@ def card_texts(c: dict, item: dict, out: dict) -> None:
                      f"<b>{esc(out['title'].strip())}</b>\n\n{esc(out['article'].strip())}{credit}")
     if out.get("instagram"):
         c["caption"] = f"{esc(out['instagram'].strip())}{credit}"
+        c["ig_caption"] = out["instagram"].strip() + (f"\n\n{item['credit']}" if item.get("credit") else "")
     if out.get("article"):
         c["site"] = {"title": out["title"].strip(), "category": (out.get("category") or "").strip(),
                      "body": out["article"].strip() + (f"\n{item['credit']}" if item.get("credit") else "")}
@@ -1661,7 +1667,7 @@ def card_caption(c: dict) -> str:
     elif c.get("preview"):
         lines.append("🖼 Tswira d l source (mazal bla cover)")
     notes = list(c["notes"])
-    status = [x for x in (c.get("status"), c.get("site_line")) if x]
+    status = [x for x in (c.get("status"), c.get("site_line"), c.get("ig_line")) if x]
     limit = 1024 if c["media"] else 4096
     while True:
         text = "\n".join(lines + notes + status)
@@ -1683,8 +1689,12 @@ def card_kb(c: dict) -> dict:
         site = (f"🌐 Site {'✅' if o['site'] else '❌'}") if c["nass"] else "🌐 Site (bla nass)"
         rows.append([b(site, "ts"), b(f"📸 Post {'✅' if o['post'] else '❌'}", "tp"),
                      b(f"📱 Story {'✅' if o['story'] else '❌'}", "tt")])
-        rows.append([b("🔁 Pack 3awtani" if c["packs"] else "📦 Pack final", "pub")])
-        rows.append([b("↩️ Bddel cover", "bk")])
+        if c.get("confirm"):
+            rows.append([b("✅ Nchr daba", "go"), b("❌ Rj3", "no")])
+        else:
+            auto = ig_ready() or bool(SITE_PUBLISH_URL and BOT_PUBLISH_SECRET)
+            rows.append([b("🔁 Pack 3awtani" if c.get("published") else "🚀 Publier" if auto else "📦 Pack final", "pub")])
+            rows.append([b("↩️ Bddel cover", "bk")])
     texts = ([b("📄 النسخة 1", "nas")] if c["nass"] else []) + ([b("📝 Caption", "cap")] if c["caption"] else [])
     if texts:
         rows.append(texts)
@@ -1838,24 +1848,139 @@ def site_publish(c: dict, e: dict, raw: Image.Image) -> tuple[str | None, str]:
     return None, "ركن ma tl9ach"
 
 
+class IGError(Exception):
+    pass
+
+
+def ig_ready() -> bool:
+    return bool(IG_TOKEN and IG_USER_ID and SITE_MEDIA_URL and BOT_PUBLISH_SECRET)
+
+
+def ig_call(method: str, path: str, **params) -> dict:
+    """Graph API d Instagram. Token ma kaytkteb f ta log (ghir smiya d ghalat)."""
+    params["access_token"] = IG_TOKEN
+    try:
+        r = requests.request(method, f"{IG_API}/{path}", timeout=60,
+                             **({"params": params} if method == "GET" else {"data": params}))
+    except requests.RequestException as ex:
+        raise IGError(f"Instagram ma jawebch ({ex.__class__.__name__})") from None
+    try:
+        j = r.json()
+    except ValueError:
+        j = {}
+    if not r.ok or "error" in j:
+        err = j.get("error") or {}
+        raise IGError(f"{err.get('message') or f'HTTP {r.status_code}'}"[:200] + (f" (code {err['code']})" if err.get("code") else ""))
+    return j
+
+
+def ig_quota() -> tuple[int, int] | None:
+    """(ch7al tnchr f 24h, l 7add) mn Instagram."""
+    try:
+        d = (ig_call("GET", f"{IG_USER_ID}/content_publishing_limit", fields="quota_usage,config").get("data") or [{}])[0]
+        return int(d.get("quota_usage", 0)), int((d.get("config") or {}).get("quota_total", 50))
+    except (IGError, ValueError, TypeError) as ex:
+        log(f"[instagram] quota: {ex}")
+        return None
+
+
+def site_media(data: bytes) -> str:
+    """JPEG public f site (Instagram kayjib tswira b URL)."""
+    try:
+        r = requests.post(SITE_MEDIA_URL, timeout=90, headers={"Authorization": f"Bearer {BOT_PUBLISH_SECRET}"},
+                          files={"image": ("saispress-ig.jpg", data, "image/jpeg")})
+        j = r.json()
+    except (requests.RequestException, ValueError) as ex:
+        raise IGError(f"site ma 9blch tswira ({ex.__class__.__name__})") from None
+    if not r.ok or not j.get("url"):
+        raise IGError(f"site ma 9blch tswira (HTTP {r.status_code} {str(j.get('error', ''))[:100]})")
+    return j["url"]
+
+
+def ig_publish(data: bytes, caption: str = "", story: bool = False) -> str:
+    """Post (caption) wla Story f Instagram. Kayrja3 lien (permalink) ila kayn."""
+    params = {"image_url": site_media(data)}
+    if story:
+        params["media_type"] = "STORIES"
+    else:
+        params["caption"] = caption[:2200]
+    container = ig_call("POST", f"{IG_USER_ID}/media", **params)["id"]
+    for _ in range(20):  # Instagram kayjib tswira w kaywjjedha (ghaliban dghya)
+        status = ig_call("GET", container, fields="status_code").get("status_code")
+        if status == "FINISHED":
+            break
+        if status in ("ERROR", "EXPIRED"):
+            raise IGError(f"Instagram rfed tswira ({status})")
+        time.sleep(3)
+    media = ig_call("POST", f"{IG_USER_ID}/media_publish", creation_id=container)["id"]
+    try:
+        return ig_call("GET", media, fields="permalink").get("permalink", "")
+    except IGError:
+        return ""
+
+
+def ig_check_token() -> None:
+    """Token d Instagram kaydoum 60 youm. Mlli yb9a lih 9al mn 10 iyam, kantmddoh (refresh_access_token),
+    w ila ma tmddch kanbhou f Telegram (mra f nhar). F state ghir empreinte (sha256) w dates, machi token."""
+    if not ig_ready():
+        return
+    now, day = time.time(), datetime.now(TZ).strftime("%Y-%m-%d")
+    tok = hashlib.sha256(IG_TOKEN.encode()).hexdigest()[:16]
+    if _cards.get("ig_tok") != tok:  # token jdid f GitHub Secrets
+        _cards.update({"ig_tok": tok, "ig_expires": now + 60 * 86400})
+        cards_save()
+    left = _cards["ig_expires"] - now
+    if left > 10 * 86400:
+        return
+    problem = ""
+    try:
+        j = ig_call("GET", "refresh_access_token", grant_type="ig_refresh_token")
+        if j.get("access_token") == IG_TOKEN:
+            _cards["ig_expires"] = now + int(j.get("expires_in", 0))
+            log(f"[instagram] token tmded {int(j.get('expires_in', 0)) // 86400} youm")
+            cards_save()
+            return
+        problem = "Instagram 3ta token jdid"
+    except IGError as ex:
+        problem = str(ex)
+    log(f"[instagram] refresh: {problem}")
+    if _cards.get("ig_warned") != day:
+        _cards["ig_warned"] = day
+        cards_save()
+        tg_send(f"⚠️ <b>Token d Instagram</b> ghaysali f ~{max(0, int(left // 86400))} youm ({esc(problem[:150])}).\n"
+                "developers.facebook.com → Saispress Publisher → Configuration de l'API avec la connexion Instagram → "
+                "<b>Générer un token</b>, w bddlo f GitHub Secrets <code>IG_ACCESS_TOKEN</code>.")
+
+
+def card_story(c: dict, e: dict, raw: Image.Image | None) -> bytes | None:
+    if raw and e.get("raw") and e["kind"] != "match":
+        try:
+            return cover.make_story(raw, e.get("title", ""), e.get("category", ""), crop_to,
+                                    e.get("stock", False), e.get("urgent", False))
+        except Exception as ex:  # story ma khasshach twe9ef l pack
+            log(f"[story KO] {ex.__class__.__name__}: {ex}")
+    post = tg_download(e["doc"])  # chi3arat / match: cover kamla f l wost
+    return story_image(post) if post else None
+
+
 def card_pack(mid: int, c: dict) -> str:
-    """📦 Pack final: fichiers (quality kamla) + nsous jahzin l copie. Kayrja3 status."""
+    """🚀 Publier: Site (brouillon) w Instagram (Post, Story) ila configurés. Li ma tnchrch (machi configuré,
+    ghalat, quota) kayji f l pack (fichiers quality kamla + nsous) bach ytnchr b l yed.
+    Click tani (🔁 Pack 3awtani): fichiers w nsous bo7dhom, bla nchr 3awtani."""
     e, o = c["entries"][c["chosen"]], c["opts"]
-    media, files, parts = [], {}, []
+    again = bool(c.get("published"))
+    want = [p for p, on in (("Site", o["site"] and c["nass"]), ("Post", o["post"]), ("Story", o["story"])) if on]
+    manual = set(want) if again else set()
     # tswira l asliya d cover (chi3arat ma 3ndhomch: site kayakhod tswira d cover akhor)
     raw_id = e.get("raw") or next((x["raw"] for x in c["entries"] if x.get("raw")), None)
     raw = None
-    if raw_id and ((o["site"] and c["nass"]) or (o["story"] and e.get("raw"))):
+    if raw_id and ("Site" in want or ("Story" in want and e.get("raw"))):
         data = tg_download(raw_id)
         raw = Image.open(BytesIO(data)).convert("RGB") if data else None
-    if o["post"]:
-        media.append({"type": "document", "media": e["doc"]})
-        parts.append("Post")
-    manual_site = False
-    if o["site"] and c["nass"]:
-        if c.get("site_url"):  # deja f site (brouillon): ma n3awdoch
-            pass
-        elif SITE_PUBLISH_URL and BOT_PUBLISH_SECRET and raw and c.get("site"):
+    story = card_story(c, e, raw) if "Story" in want else None
+
+    if "Site" in want and not again and not c.get("site_url"):
+        if SITE_PUBLISH_URL and BOT_PUBLISH_SECRET and raw and c.get("site"):
             url, err = site_publish(c, e, raw)
             if url:
                 c["site_url"] = url
@@ -1863,30 +1988,63 @@ def card_pack(mid: int, c: dict) -> str:
             else:
                 log(f"[site KO] {err}")
                 c["site_line"] = f"⚠️ Site ma tnchrch ({esc(err)}): tswira w النسخة 1 f l pack"
-                manual_site = True
+                manual.add("Site")
         else:
-            manual_site = True
-        if manual_site and raw:
-            files["w"] = ("saispress-site-16x9.jpg", render(raw, SITE_SIZE), "image/jpeg")
-            media.append({"type": "document", "media": "attach://w"})
-        parts.append("Site")
-    if o["story"]:
-        story = None
-        if raw and e.get("raw") and e["kind"] != "match":
-            try:
-                story = cover.make_story(raw, e.get("title", ""), e.get("category", ""), crop_to,
-                                         e.get("stock", False), e.get("urgent", False))
-            except Exception as ex:  # story ma khasshach twe9ef l pack
-                log(f"[story KO] {ex.__class__.__name__}: {ex}")
-        if story is None:  # chi3arat / match: cover kamla f l wost
-            post = tg_download(e["doc"])
-            story = story_image(post) if post else None
-        if story:
-            files["s"] = ("saispress-story-9x16.jpg", story, "image/jpeg")
-            media.append({"type": "document", "media": "attach://s"})
-            parts.append("Story")
+            manual.add("Site")
+
+    ig = c.setdefault("ig", {})
+    todo = [p for p in ("Post", "Story") if p in want and not ig.get(p)] if not again else []
+    if todo and not ig_ready():
+        manual.update(todo)
+    elif todo:
+        quota = ig_quota()
+        err = ""
+        if quota and quota[0] + len(todo) > quota[1]:
+            err = f"quota salat ({quota[0]}/{quota[1]} f 24h)"
+            manual.update(todo)
         else:
-            log("[pack KO] story: tswira ma tnzlatch")
+            caption = c.get("ig_caption") or html.unescape(re.sub(r"<[^>]+>", "", c["caption"]))
+            caption += f"\n{photo_credit(e)}" if photo_credit(e) else ""
+            post = tg_download(e["doc"]) if "Post" in todo else None
+            for p in todo:
+                data = post if p == "Post" else story
+                try:
+                    if not data:
+                        raise IGError("tswira ma tnzlatch")
+                    ig[p] = ig_publish(data, caption, story=p == "Story") or "ok"
+                    log(f"[instagram] {p} tnchr {ig[p]}")
+                except IGError as ex:
+                    log(f"[instagram KO] {p}: {ex}")
+                    err = str(ex)
+                    manual.add(p)
+            quota = ig_quota()
+        done = [f"<a href=\"{html.escape(ig[p])}\">{p}</a>" if ig[p].startswith("http") else p
+                for p in ("Post", "Story") if ig.get(p)]
+        c["ig_line"] = (f"📸 Instagram: {' · '.join(done)} ✅" if done else "📸 Instagram: ma tnchr walou") + \
+            (f" · ⚠️ {esc(err)} → f l pack" if err else "") + (f" · 📊 {quota[0]}/{quota[1]} f 24h" if quota else "")
+
+    with _cards_lock:
+        c["published"] = c.get("published") or time.time()
+    if manual:
+        card_files(mid, c, e, manual, raw, story)
+    auto = [p for p in want if p not in manual]
+    when = datetime.now(TZ).strftime("%H:%M")
+    if again or not auto:
+        return f"📦 Pack tsifet {when} ({' · '.join(sorted(manual, key=want.index))})"
+    return f"🚀 Tnchr {when}: {' · '.join(auto)}" + (f" · 📦 f l pack: {' · '.join(sorted(manual, key=want.index))}" if manual else "")
+
+
+def card_files(mid: int, c: dict, e: dict, parts: set, raw: Image.Image | None, story: bytes | None) -> None:
+    """Fichiers (quality kamla) w nsous l nchr b l yed."""
+    media, files = [], {}
+    if "Post" in parts:
+        media.append({"type": "document", "media": e["doc"]})
+    if "Site" in parts and raw:
+        files["w"] = ("saispress-site-16x9.jpg", render(raw, SITE_SIZE), "image/jpeg")
+        media.append({"type": "document", "media": "attach://w"})
+    if "Story" in parts and story:
+        files["s"] = ("saispress-story-9x16.jpg", story, "image/jpeg")
+        media.append({"type": "document", "media": "attach://s"})
     day = datetime.now(TZ).strftime("%Y-%m-%d")
     with _cards_lock:
         counts = _cards["days"].setdefault(day, {})
@@ -1894,9 +2052,9 @@ def card_pack(mid: int, c: dict) -> str:
             if p_ not in c["counted"]:
                 c["counted"].append(p_)
                 counts[p_] = counts.get(p_, 0) + 1
-    caption = (f"📦 <b>Pack final</b> · {' · '.join(parts) or '-'}\n"
-               f"📊 Lyoum: {counts.get('Post', 0)} post · {counts.get('Story', 0)} story · "
-               f"{counts.get('Site', 0)} site (API Instagram: max 50 post+story f 24h)")
+    caption = (f"📦 <b>Pack</b> · {' · '.join(p for p in ('Post', 'Site', 'Story') if p in parts)}\n"
+               f"📊 Lyoum (b l yed): {counts.get('Post', 0)} post · {counts.get('Story', 0)} story · "
+               f"{counts.get('Site', 0)} site")
     reply = {"message_id": mid, "allow_sending_without_reply": True}
     if media:
         media[-1].update({"caption": caption, "parse_mode": "HTML"})
@@ -1906,11 +2064,24 @@ def card_pack(mid: int, c: dict) -> str:
         else:
             tg_call("sendMediaGroup", {"chat_id": TELEGRAM_CHAT_ID, "media": media, "reply_parameters": reply},
                     files or None, timeout=90)
-    if manual_site:
+    if "Site" in parts:
         tg_send(c["nass"], reply_to=mid)
     if ("Post" in parts or "Story" in parts) and c["caption"]:
         tg_send(c["caption"], reply_to=mid)
-    return f"📦 Pack tsifet {datetime.now(TZ).strftime('%H:%M')} ({' · '.join(parts)})"
+
+
+def card_run(q: dict, mid: int, c: dict) -> None:
+    with _cards_lock:
+        c["packs"].append(time.time())
+        c["confirm"] = False
+        c["status"] = "⏳ Kanchr…"
+    cards_save()
+    tg_answer(q, "⏳ Kanchr…" if not c.get("published") else "📦 Kanwjjed l pack…")
+    card_show(mid, c)
+    status = card_pack(mid, c)
+    with _cards_lock:
+        c["status"] = status
+    card_show(mid, c)
 
 
 def tg_answer(q: dict, text: str = "") -> None:
@@ -1959,15 +2130,24 @@ def on_callback(q: dict) -> None:
             tg_answer(q, "Khtar Site, Post wla Story 9bel.")
             return
         if c["packs"] and time.time() - c["packs"][-1] < 20:
-            tg_answer(q, "Pack deja tsifet.")
+            tg_answer(q, "Deja tsifet.")
             return
+        if ig_ready() and (o["post"] or o["story"]) and not c.get("published"):  # Instagram public: ta2kid
+            parts = [p for p, on in (("Site (brouillon)", o["site"] and c["nass"]), ("Post", o["post"]),
+                                     ("Story", o["story"])) if on]
+            with _cards_lock:
+                c["confirm"] = True
+                c["status"] = f"⚠️ <b>Ta2kid:</b> ghaytnchr daba: {' · '.join(parts)}"
+            tg_answer(q)
+            card_show(mid, c)
+            return
+        card_run(q, mid, c)
+    elif act == "go" and c.get("confirm") and c["chosen"] is not None:
+        card_run(q, mid, c)
+    elif act == "no" and c.get("confirm"):
         with _cards_lock:
-            c["packs"].append(time.time())
-        cards_save()
-        tg_answer(q, "📦 Kanwjjed l pack…")
-        status = card_pack(mid, c)
-        with _cards_lock:
-            c["status"] = status
+            c["confirm"], c["status"] = False, ""
+        tg_answer(q, "Ma tnchr walou.")
         card_show(mid, c)
     elif act == "nas" and c["nass"]:
         tg_answer(q)
@@ -2508,6 +2688,10 @@ def main() -> int:
         del _used_free[k]
     log(f"[used_imgs] {len(_used_free)} f state ({USED_IMG_HOURS} sa3at)")
     cards_load()
+    try:
+        ig_check_token()
+    except Exception as e:  # token ma khasshch ywe9ef l bot
+        log(f"[instagram] {e!r}")
     stop = threading.Event()
     buttons = None
     if not DRY_RUN:

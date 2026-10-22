@@ -66,6 +66,8 @@ jobs:
           EDITOR_IDS: ${{ vars.EDITOR_IDS }}
           SITE_PUBLISH_URL: ${{ vars.SITE_PUBLISH_URL }}
           BOT_PUBLISH_SECRET: ${{ secrets.BOT_PUBLISH_SECRET }}
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          IG_USER_ID: ${{ vars.IG_USER_ID }}
 
       - name: Save state
         if: always() && hashFiles('state/seen.json') != ''
