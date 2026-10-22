@@ -22,6 +22,7 @@ Env:
   JUDGE_WAIT           default 300 (s: akhbar jdad kaytjm3o had l mudda w kaytjudgaw f call Gemini wa7d)
   JUDGE_BATCH          default 15 (max akhbar f call wa7d d judge)
   EDITOR_IDS           ikhtiyari: IDs Telegram (b virgule) li y9dro yclickiw 3la boutons (khawi = ay wa7d f chat)
+  SITE_PUBLISH_URL, BOT_PUBLISH_SECRET  ikhtiyari: 🌐 Site f Pack kaydir brouillon f saispress.com (/api/bot/publish)
 """
 
 from __future__ import annotations
@@ -66,6 +67,8 @@ SERPER_KEY = os.environ.get("SERPER_API_KEY", "")
 RELAY_URL = os.environ.get("RELAY_URL", "").rstrip("/")
 RELAY_KEY = os.environ.get("RELAY_KEY", "")
 EDITOR_IDS = {int(x) for x in re.findall(r"-?\d+", os.environ.get("EDITOR_IDS", ""))}
+SITE_PUBLISH_URL = os.environ.get("SITE_PUBLISH_URL", "").strip()
+BOT_PUBLISH_SECRET = os.environ.get("BOT_PUBLISH_SECRET", "").strip()
 FREE_IMAGES = bool(PEXELS_KEY or PIXABAY_KEY)
 GEMINI_MODELS = [m.strip() for m in os.environ.get("GEMINI_MODELS", "").split(",") if m.strip()]
 
@@ -341,7 +344,7 @@ def article_data(item: dict) -> tuple[str, list[str]]:
 # ---------------------------------------------------------------- tsawer
 
 INSTA_SIZE = (1080, 1350)  # portrait 4:5
-SITE_SIZE = (1200, 675)    # site 16:9
+SITE_SIZE = (1600, 900)    # site 16:9 (site kaydir variants bo7do)
 STORY_SIZE = (1080, 1920)  # story 9:16
 _WP_SIZE = re.compile(r"-\d{2,4}x\d{2,4}(?=\.(?:jpe?g|png|webp)(?:\?|$))", re.I)
 # CDN li kay3tiw nfs tswira b 9yas akbar (RSS kay3ti 1200x630 / 1024x576)
@@ -1634,6 +1637,9 @@ def card_texts(c: dict, item: dict, out: dict) -> None:
                      f"<b>{esc(out['title'].strip())}</b>\n\n{esc(out['article'].strip())}{credit}")
     if out.get("instagram"):
         c["caption"] = f"{esc(out['instagram'].strip())}{credit}"
+    if out.get("article"):
+        c["site"] = {"title": out["title"].strip(), "category": (out.get("category") or "").strip(),
+                     "body": out["article"].strip() + (f"\n{item['credit']}" if item.get("credit") else "")}
     card_note(c, lite_note(out))
 
 
@@ -1654,7 +1660,8 @@ def card_caption(c: dict) -> str:
             lines.append(esc(e["credit"][:200]))
     elif c.get("preview"):
         lines.append("🖼 Tswira d l source (mazal bla cover)")
-    notes, status = list(c["notes"]), [c["status"]] if c.get("status") else []
+    notes = list(c["notes"])
+    status = [x for x in (c.get("status"), c.get("site_line")) if x]
     limit = 1024 if c["media"] else 4096
     while True:
         text = "\n".join(lines + notes + status)
@@ -1780,6 +1787,57 @@ def card_send(c: dict, entries: list[dict], preview: bytes | None = None, mid: i
     return mid
 
 
+# Catégories d Gemini → ركن f site (l lowel li kayn f site). Ila ma tl9a walou: مجتمع.
+SITE_CATS = {"دولي": ["أخبار دولية", "دولي", "العالم"], "حوادث": ["حوادث", "مجتمع"],
+             "صحة": ["صحة", "مجتمع"], "تعليم": ["تعليم", "مجتمع"], "طقس": ["طقس", "مجتمع"],
+             "تكنولوجيا": ["تكنولوجيا", "علوم وتكنولوجيا", "اقتصاد"], "فن": ["فن", "فنون", "ثقافة"],
+             "ثقافة": ["ثقافة", "فن"]}
+
+
+def _site_cat(cat: str, known: list[str]) -> str:
+    wanted = SITE_CATS.get(cat, [cat]) + ["مجتمع"]
+    if not known:
+        return wanted[0]
+    return next((w for w in wanted if w in known), known[0])
+
+
+def photo_credit(e: dict) -> str:
+    """Credit 9anouni d tswira 7orra (Pexels / Openverse / Commons) l l article: "الصورة: X / Pexels"."""
+    m = re.search(r"Photo: ([^·\n]+)", e.get("credit") or "")
+    return f"الصورة: {m.group(1).strip()}" if m and e.get("free") else ""
+
+
+def site_publish(c: dict, e: dict, raw: Image.Image) -> tuple[str | None, str]:
+    """Brouillon f saispress.com (/api/bot/publish, status=draft). Kayrja3 (lien d admin, ghalat)."""
+    site = c["site"]
+    body = site["body"] + (f"\n{photo_credit(e)}" if photo_credit(e) else "")
+    image = render(raw, SITE_SIZE)
+    known = _cards.get("site_cats") or []
+    cat = _site_cat(site["category"], known)
+    for _ in range(2):
+        try:
+            r = requests.post(SITE_PUBLISH_URL, timeout=90, headers={"Authorization": f"Bearer {BOT_PUBLISH_SECRET}"},
+                          data={"title": site["title"][:300], "body": body, "category": cat, "status": "draft"},
+                          files={"image": ("saispress-site.jpg", image, "image/jpeg")})
+        except requests.RequestException as ex:
+            return None, f"site ma jawebch ({ex.__class__.__name__})"
+        try:
+            j = r.json()
+        except ValueError:
+            j = {}
+        if r.ok and j.get("url"):
+            log(f"[site] brouillon {j.get('id')} · {cat}")
+            return j["url"], ""
+        cats = j.get("categories") if isinstance(j.get("categories"), list) else None
+        if r.status_code == 422 and cats and cat not in cats:  # ركن ma kaynch: nkhtar mn la liste d site
+            with _cards_lock:
+                _cards["site_cats"] = cats
+            cat = _site_cat(site["category"], cats)
+            continue
+        return None, f"HTTP {r.status_code} {str(j.get('error') or r.text)[:150]}"
+    return None, "ركن ma tl9ach"
+
+
 def card_pack(mid: int, c: dict) -> str:
     """📦 Pack final: fichiers (quality kamla) + nsous jahzin l copie. Kayrja3 status."""
     e, o = c["entries"][c["chosen"]], c["opts"]
@@ -1793,8 +1851,22 @@ def card_pack(mid: int, c: dict) -> str:
     if o["post"]:
         media.append({"type": "document", "media": e["doc"]})
         parts.append("Post")
+    manual_site = False
     if o["site"] and c["nass"]:
-        if raw:
+        if c.get("site_url"):  # deja f site (brouillon): ma n3awdoch
+            pass
+        elif SITE_PUBLISH_URL and BOT_PUBLISH_SECRET and raw and c.get("site"):
+            url, err = site_publish(c, e, raw)
+            if url:
+                c["site_url"] = url
+                c["site_line"] = f"🌐 Site: <a href=\"{html.escape(url)}\">brouillon f admin</a> (raje3 w nchr)"
+            else:
+                log(f"[site KO] {err}")
+                c["site_line"] = f"⚠️ Site ma tnchrch ({esc(err)}): tswira w النسخة 1 f l pack"
+                manual_site = True
+        else:
+            manual_site = True
+        if manual_site and raw:
             files["w"] = ("saispress-site-16x9.jpg", render(raw, SITE_SIZE), "image/jpeg")
             media.append({"type": "document", "media": "attach://w"})
         parts.append("Site")
@@ -1834,7 +1906,7 @@ def card_pack(mid: int, c: dict) -> str:
         else:
             tg_call("sendMediaGroup", {"chat_id": TELEGRAM_CHAT_ID, "media": media, "reply_parameters": reply},
                     files or None, timeout=90)
-    if "Site" in parts:
+    if manual_site:
         tg_send(c["nass"], reply_to=mid)
     if ("Post" in parts or "Story" in parts) and c["caption"]:
         tg_send(c["caption"], reply_to=mid)

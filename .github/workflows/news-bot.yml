@@ -64,6 +64,8 @@ jobs:
           SERPER_CREDITS: ${{ vars.SERPER_CREDITS || '2500' }}
           HIGH_SCORE: ${{ vars.HIGH_SCORE || '8' }}
           EDITOR_IDS: ${{ vars.EDITOR_IDS }}
+          SITE_PUBLISH_URL: ${{ vars.SITE_PUBLISH_URL }}
+          BOT_PUBLISH_SECRET: ${{ secrets.BOT_PUBLISH_SECRET }}
 
       - name: Save state
         if: always() && hashFiles('state/seen.json') != ''
