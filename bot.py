@@ -95,6 +95,8 @@ REPORT_HOUR = int(os.environ.get("REPORT_HOUR", "22"))  # sa3a dyal rapport l yo
 
 SEEN_TTL = 4 * 86400
 USED_IMG_HOURS = 3  # tswira 7orra/rasmiya li tsiftet ma t3awedch tban had l mudda
+FREE_PER_QUERY = 4  # tsawer 7orra l kol b7ath f kol bank (Pexels khawi + Openverse kayti7: Pixabay bo7do bzaf l merrat)
+FREE_MAX = 18  # max d tsawer li kaymchiw l Gemini (score)
 IMG_MIN_SCORE = 4  # tswira 7orra (ta3biriya) ma katdkhol l covers ila Gemini 3taha 9al mn had score (0-10)
 N_FREE = 3  # tsawer m3a tswira d source f kol card (7orra + chakhsiya / idara), mn l a7san score
 PUB_IMG_DAYS = 2  # tswira li tkhtarat (✅ Valider) wla tnchrat ma t3awedch tt9tar7 had l mudda
@@ -649,10 +651,10 @@ _MA_RE = re.compile(r"morocc|maroc|marok|marruec|marrocos|المغرب|marrakech
 
 def free_cands(query: str, category: str = "") -> list[dict]:
     """3 recherches (d9i9a -> 3amma) f Pexels/Pixabay w Openverse (b thumbs). Bla recherche 3amma mn category
-    (sma / zn9a / ml3ab: dima bla 3ala9a). Khabar f lmghrib (Morocco f l b7ath): ghir tsawer li l bank kaygoul
-    mn lmghrib (ila kaynin)."""
+    (sma / zn9a / ml3ab: dima bla 3ala9a). Khabar f lmghrib (Morocco f l b7ath): tsawer li l bank kaygoul mn
+    lmghrib lowlin, w l b9iya m3ahom (Gemini kay7ayed li bayna mn blad khra)."""
     cands, seen = [], set()
-    queries = [(q.strip(), 2) for q in query.split("|") if q.strip()][:3]
+    queries = [(q.strip(), FREE_PER_QUERY) for q in query.split("|") if q.strip()][:3]
     ma = bool(re.search(r"morocc", query, re.I)) and category != "دولي"
     skipped = [0, 0]  # t7aydu 7it tsiftu 9bel: b ID, b basma
     def fresh(found: list[dict], n: int) -> list[dict]:  # n lowlin li ma tsiftouch 9bel (mn lmghrib l lowlin)
@@ -668,11 +670,11 @@ def free_cands(query: str, category: str = "") -> list[dict]:
         for found in [c for r in results[k * len(banks):(k + 1) * len(banks)] for c in fresh(r, n)]:
             seen.add(found["id"])
             cands.append({**found, "q": q, "credit_line": f"{found['credit']} · b7ath: {q}"})
-    if ma:
-        local = [c for c in cands if _MA_RE.search(c.get("desc") or "")]
-        log(f"[tswira 7orra] khabar f lmghrib: {len(local)}/{len(cands)} tswira mn lmghrib"
-            + ("" if local else " → walou, kankhalliw l b9iya (Gemini kaykhtar ghir l mo7ayida)"))
-        cands = local or cands
+    if ma:  # 9bel: ghir li mn lmghrib (ila kaynin) → 2 tsawer bla 3ala9a w 0 covers
+        cands.sort(key=lambda c: not _MA_RE.search(c.get("desc") or ""))
+        log(f"[tswira 7orra] khabar f lmghrib: {sum(bool(_MA_RE.search(c.get('desc') or '')) for c in cands)}"
+            f"/{len(cands)} tswira mn lmghrib (lowlin)")
+    cands = cands[:FREE_MAX]
     with ThreadPoolExecutor(max_workers=8) as pool:
         thumbs = list(pool.map(thumb_jpeg, cands))
     out, hashes = [], []
@@ -2938,6 +2940,10 @@ def build_covers(item: dict, out: dict, img, small, upscaled: bool, urgent: bool
     source = next((ch for ch in real if ch["origin"] == "source" and min(ch["native"]) >= 600), None)
     picks = [ch for ch in (source, person) if ch] or real[:1]
     picks += [ch for ch in choices if ch["stock"]][:N_FREE - bool(person)]
+    if not picks:  # bla source, bla chakhsiya, bla 7orra >= IMG_MIN_SCORE: cover b design bla tswira
+        log("[cover] bla 7tta tswira → cover bla tswira (design Saispress)")
+        picks = [{"img": cover.blank_bg(urgent), "native": (1600, 1000), "up": False, "stock": False,
+                  "origin": "bla tswira", "credit": "Bla tswira: cover b design Saispress", "hash": None}]
     entries = []
     for ch in picks:
         try:
@@ -2951,7 +2957,7 @@ def build_covers(item: dict, out: dict, img, small, upscaled: bool, urgent: bool
         ch["img"].convert("RGB").save(raw, "JPEG", quality=95, optimize=True, subsampling=0)
         entries.append({"cover": data, "raw": raw.getvalue(), "kind": kind, "origin": ch["origin"],
                         "hash": f"{ch['hash']:016x}" if ch["hash"] is not None else None,
-                        "free": ch["stock"] or ch["origin"] == "rasmiya", "credit": ch["credit"],
+                        "free": ch["stock"] or ch["origin"] in ("rasmiya", "bla tswira"), "credit": ch["credit"],
                         "stock": ch["stock"], "title": out["instagram_title"], "category": out.get("category", ""),
                         "urgent": urgent})
     if match and (match.get("home_badge") is not None or match.get("away_badge") is not None):

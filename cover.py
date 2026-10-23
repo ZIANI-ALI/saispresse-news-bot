@@ -357,6 +357,25 @@ def make_badges_post(title: str, match: dict, urgent: bool = False) -> bytes:
     return _jpeg(layout_match(bg, clean_title(title), plain, lambda im, size: im, False, urgent))
 
 
+def blank_bg(urgent: bool = False, size: tuple[int, int] = (1600, 1000)) -> Image.Image:
+    """"Tswira" d khabar bla 7tta tswira: navy b dégradé, logo kbir f l wost w khatt dahbi (7mer f 3ajil).
+    Katdkhol l make_post / make_story / site b7al ay tswira, bach card ma tb9ach bla cover."""
+    w, h = size
+    accent = RED if urgent else GOLD
+    im = Image.new("RGBA", size, (*NAVY, 255))
+    glow = Image.new("RGBA", size, (0, 0, 0, 0))
+    ImageDraw.Draw(glow).ellipse((w * 0.1, -h * 0.3, w * 0.9, h * 0.9), fill=(*NAVY2, 255))
+    im.alpha_composite(glow.filter(ImageFilter.GaussianBlur(160)))
+    lg = _logo(round(h * 0.26))
+    lg.putalpha(lg.getchannel("A").point(lambda v: v * 200 // 255))
+    im.alpha_composite(lg, ((w - lg.width) // 2, round(h * 0.40) - lg.height // 2))
+    dr = ImageDraw.Draw(im)
+    lw = round(w * 0.18)
+    dr.rectangle(((w - lw) // 2, round(h * 0.40) + lg.height // 2 + 40, (w + lw) // 2, round(h * 0.40) + lg.height // 2 + 48),
+                 fill=accent)
+    return im.convert("RGB")
+
+
 def choose_layout(native: tuple[int, int], upscaled: bool, n_lines: int) -> str:
     """D ghir ila tswira l asliya HD w machi 3rida bzaf (bach ma ytqt3ouch nas/tafasil f crop).
 
