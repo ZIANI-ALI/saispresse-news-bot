@@ -403,19 +403,21 @@ def _fit_balanced(text: str, name: str, maxw: int, steps):
 
 
 def _text_block(im: Image.Image, title: str, category: str, urgent: bool, right: int, maxw: int,
-                top: int, bottom: int, steps, pill_size: int = 40) -> None:
-    """Pill (rkn / عاجل) + titre kbir mcentri bin top w bottom, b khatt dahbi (7mer: byed) l imin."""
+                top: int, bottom: int, steps, pill_size: int = 56) -> None:
+    """Pill kbira (rkn / عاجل) mcentria l fo9 + titre kbir bin top w bottom, b khatt dahbi (7mer: byed) l imin."""
     dr = ImageDraw.Draw(im)
     accent = WHITE if urgent else GOLD
     pill_text = "عاجل" if urgent else category
     pill_fnt = _font("Tajawal-Black.ttf" if urgent else "Tajawal-Bold.ttf", pill_size)
-    pill_h = (sum(pill_fnt.getmetrics()) + 10) if pill_text else 0
+    pill_h = (sum(pill_fnt.getmetrics()) + 12) if pill_text else 0
     fnt, lines = _fit_balanced(title, "Tajawal-Black.ttf", maxw, steps)
     lh = int(fnt.size * 1.24)
     block = (pill_h + 44 if pill_text else 0) + lh * len(lines)
     y = top + max(0, (bottom - top - block) // 2)
     if pill_text:
-        _pill(dr, right, y, pill_text, pill_fnt, padx=28, pady=10, fill=accent, color=RED if urgent else NAVY)
+        padx = 40
+        _pill(dr, round(im.width / 2 + _width(pill_text, pill_fnt) / 2 + padx), y, pill_text, pill_fnt,
+              padx=padx, pady=12, fill=accent, color=RED if urgent else NAVY)
         y += pill_h + 44
     dr.rectangle((right + 22, y + 18, right + 32, y + lh * len(lines) - 26), fill=accent)
     _lines(dr, lines, fnt, right, y, lh)
@@ -440,7 +442,7 @@ def make_text_site(title: str, category: str, urgent: bool = False) -> bytes:
     w, h = 1600, 900
     im = _text_bg(w, h, urgent)
     _text_block(im, title, category, urgent, w - 130, w - 420, 60, h - 60,
-                [(3, 104, 84), (4, 88, 70), (5, 74, 60)], 36)
+                [(3, 104, 84), (4, 88, 70), (5, 74, 60)], 50)
     lg = _logo(96)
     im.alpha_composite(lg, (70, h - 70 - lg.height))
     return _jpeg(im)
@@ -450,7 +452,7 @@ def make_text_story(title: str, category: str, urgent: bool = False) -> bytes:
     """Story 1080x1920 bla tswira: titre kbir, logo, w blasa khawya l sticker d lien (b7al make_story)."""
     title, category = clean_title(title), clean_title(category)[:20]
     im = _text_bg(SW, SH, urgent)
-    _text_block(im, title, category, urgent, 990, 880, 300, 1300, STEPS_TEXT, 44)
+    _text_block(im, title, category, urgent, 990, 880, 300, 1300, STEPS_TEXT, 62)
     dr = ImageDraw.Draw(im)
     accent = WHITE if urgent else GOLD
     lg = _logo(110)
