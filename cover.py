@@ -402,7 +402,7 @@ def _fit_balanced(text: str, name: str, maxw: int, steps):
     return fnt, ([" ".join(words[best[i]:best[i + 1]]) for i in range(n)] if best else _wrap(text, fnt, maxw))
 
 
-CADRE_GAP = 0.35  # faragh bin kalimat (b nisba l taille) li kan9blouh bla 3i9ab mor kashida
+CADRE_GAP = 0.30  # max d faragh zayed bin kalimat (b nisba l taille) mor kashida: ktar = bayen
 
 
 def _fit_cadre(text: str, name: str, maxw: int, steps):
@@ -412,10 +412,9 @@ def _fit_cadre(text: str, name: str, maxw: int, steps):
     best, best_score = None, None
     sizes = sorted({sz for _, hi, lo in steps for sz in range(hi, lo - 1, -4)}, reverse=True)
     max_lines = max(m for m, _, _ in steps)
-    for size in sizes:
+    for size, n in ((sz, n) for sz in sizes for n in (lambda n0: (n0, n0 + 1))(len(_wrap(text, _font(name, sz), maxw)))):
         fnt = _font(name, size)
-        n = len(_wrap(text, fnt, maxw))
-        if n > max_lines:
+        if n > min(max_lines, len(words)):
             continue
         width: dict = {}
 
@@ -445,7 +444,8 @@ def _fit_cadre(text: str, name: str, maxw: int, steps):
             k = _kashida(ln, fnt, bw)
             nw = len(k.split())
             gmax = max(gmax, (bw - _width(k, fnt)) / (nw - 1) / size if nw > 1 else 1.0)
-        score = size * (1 - 1.5 * max(0.0, gmax - CADRE_GAP)) - 40 * cand[0][0]
+        # faragh ktar mn CADRE_GAP: ghir ila ma kayn 7tta 7al akhor
+        score = size - (1000 if gmax > CADRE_GAP else 0) - 40 * cand[0][0] - 60 * gmax
         if best_score is None or score > best_score:
             best_score, best = score, (fnt, lines)
     return best or _fit_balanced(text, name, maxw, steps)
@@ -454,7 +454,7 @@ def _fit_cadre(text: str, name: str, maxw: int, steps):
 _JOIN = set("بتثجحخسشصضطظعغفقكلمنهيئ")  # 7rouf kaytrbto m3a li moraha (machi ا د ذ ر ز و ة ى ء)
 
 
-def _kashida(line: str, fnt, target: float, per_pos: int = 3) -> str:
+def _kashida(line: str, fnt, target: float, per_pos: int = 5) -> str:
     """Kanzido tatweel (ـ) bin 7rouf mrbouta 7tta ster ywsel target (justification d l 3arbiya), mwz3a 3la l kalimat."""
     words = line.split()
     slots = [[i for i in range(len(w) - 1) if w[i] in _JOIN and "\u0621" <= w[i + 1] <= "\u064a"
@@ -515,6 +515,7 @@ def _text_block(im: Image.Image, title: str, category: str, urgent: bool, right:
         words = ln.split()
         ws = [_width(w, fnt) for w in words]
         gap = (bw - sum(ws)) / (len(words) - 1) if len(words) > 1 else 0
+        gap = min(gap, _width(" ", fnt) + CADRE_GAP * fnt.size)  # ma n7ellouch l faragh bzaf (ster y9der ykoun 9sir chwiya)
         if len(lines) < 2 or len(words) < 2:
             _text(dr, (right, y + i * lh), ln, fnt, WHITE, "ra")
             continue
