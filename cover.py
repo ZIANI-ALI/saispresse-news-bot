@@ -402,25 +402,126 @@ def _fit_balanced(text: str, name: str, maxw: int, steps):
     return fnt, ([" ".join(words[best[i]:best[i + 1]]) for i in range(n)] if best else _wrap(text, fnt, maxw))
 
 
+CADRE_GAP = 0.35  # faragh bin kalimat (b nisba l taille) li kan9blouh bla 3i9ab mor kashida
+
+
+def _fit_cadre(text: str, name: str, maxw: int, steps):
+    """Titre "cadré": l kol taille (kbar 9bel) a7san t9sim d stoura (bla ster b klma wa7da, b7al b7al), w kanjarrbo
+    justification (kashida + faraghat). Kankhtaro l kbar ila l faraghat ma kbarch bzaf, sinon taille sghira chwiya."""
+    words = text.split()
+    best, best_score = None, None
+    sizes = sorted({sz for _, hi, lo in steps for sz in range(hi, lo - 1, -4)}, reverse=True)
+    max_lines = max(m for m, _, _ in steps)
+    for size in sizes:
+        fnt = _font(name, size)
+        n = len(_wrap(text, fnt, maxw))
+        if n > max_lines:
+            continue
+        width: dict = {}
+
+        def w(a: int, b: int) -> float:
+            if (a, b) not in width:
+                width[a, b] = _width(" ".join(words[a:b]), fnt)
+            return width[a, b]
+        cand = None
+        for cuts in itertools.combinations(range(1, len(words)), n - 1) if n > 1 else [()]:
+            b = (0, *cuts, len(words))
+            ws = [w(b[i], b[i + 1]) for i in range(n)]
+            if max(ws) > maxw:
+                continue
+            # a9al faragh bin kalimat ila tmddo kol stoura l a twal wa7d (ster b klma wa7da: faragh = kolchi)
+            gaps = [(max(ws) - x) / (b[i + 1] - b[i] - 1) if b[i + 1] - b[i] > 1 else max(ws) - x
+                    for i, x in enumerate(ws)]
+            key = (sum(b[i + 1] - b[i] == 1 for i in range(n)) if n > 1 else 0, max(gaps))
+            if cand is None or key < cand[0]:
+                cand = (key, b)
+        if not cand:
+            continue
+        b = cand[1]
+        lines = [" ".join(words[b[i]:b[i + 1]]) for i in range(n)]
+        bw = max(_width(ln, fnt) for ln in lines)
+        gmax = 0.0
+        for ln in lines if n > 1 else []:
+            k = _kashida(ln, fnt, bw)
+            nw = len(k.split())
+            gmax = max(gmax, (bw - _width(k, fnt)) / (nw - 1) / size if nw > 1 else 1.0)
+        score = size * (1 - 1.5 * max(0.0, gmax - CADRE_GAP)) - 40 * cand[0][0]
+        if best_score is None or score > best_score:
+            best_score, best = score, (fnt, lines)
+    return best or _fit_balanced(text, name, maxw, steps)
+
+
+_JOIN = set("بتثجحخسشصضطظعغفقكلمنهيئ")  # 7rouf kaytrbto m3a li moraha (machi ا د ذ ر ز و ة ى ء)
+
+
+def _kashida(line: str, fnt, target: float, per_pos: int = 3) -> str:
+    """Kanzido tatweel (ـ) bin 7rouf mrbouta 7tta ster ywsel target (justification d l 3arbiya), mwz3a 3la l kalimat."""
+    words = line.split()
+    slots = [[i for i in range(len(w) - 1) if w[i] in _JOIN and "\u0621" <= w[i + 1] <= "\u064a"
+              and not (w[i] == "ل" and w[i + 1] in "اأإآ")] for w in words]  # lam-alif: ligature
+    added = [[0] * len(s) for s in slots]
+    order = sorted((k for k in range(len(words)) if slots[k]), key=lambda k: -len(words[k]))
+    if not order:
+        return line
+
+    def build() -> str:
+        out = []
+        for w, sl, ad in zip(words, slots, added):
+            chars = list(w)
+            for i, n in sorted(zip(sl, ad), reverse=True):
+                chars.insert(i + 1, "ـ" * n)
+            out.append("".join(chars))
+        return " ".join(out)
+    cur = line
+    for rnd in range(per_pos):
+        for k in order:
+            sl = slots[k]
+            for j in sorted(range(len(sl)), key=lambda j: abs(j - len(sl) / 2)):  # mn l wost d l kelma
+                if added[k][j] > rnd:
+                    continue
+                added[k][j] += 1
+                nxt = build()
+                if _width(nxt, fnt) > target:
+                    added[k][j] -= 1
+                    return cur
+                cur = nxt
+                break
+    return cur
+
+
 def _text_block(im: Image.Image, title: str, category: str, urgent: bool, right: int, maxw: int,
                 top: int, bottom: int, steps, pill_size: int = 56) -> None:
-    """Pill kbira (rkn / عاجل) mcentria l fo9 + titre kbir bin top w bottom, b khatt dahbi (7mer: byed) l imin."""
+    """Pill kbira (rkn / عاجل) mcentria fo9 titre + titre kbir "cadré" (kol stoura kaybdaw w kaysaliw f nefs l blasa)
+    bin top w bottom, b khatt dahbi (7mer: byed) l imin."""
     dr = ImageDraw.Draw(im)
     accent = WHITE if urgent else GOLD
     pill_text = "عاجل" if urgent else category
     pill_fnt = _font("Tajawal-Black.ttf" if urgent else "Tajawal-Bold.ttf", pill_size)
     pill_h = (sum(pill_fnt.getmetrics()) + 12) if pill_text else 0
-    fnt, lines = _fit_balanced(title, "Tajawal-Black.ttf", maxw, steps)
+    fnt, lines = _fit_cadre(title, "Tajawal-Black.ttf", maxw, steps)
     lh = int(fnt.size * 1.24)
     block = (pill_h + 44 if pill_text else 0) + lh * len(lines)
     y = top + max(0, (bottom - top - block) // 2)
-    if pill_text:
+    bw = max(_width(ln, fnt) for ln in lines)
+    if pill_text:  # f l wost d titre (chwiya l imin d l wost d cover)
         padx = 40
-        _pill(dr, round(im.width / 2 + _width(pill_text, pill_fnt) / 2 + padx), y, pill_text, pill_fnt,
+        _pill(dr, round(right - bw / 2 + _width(pill_text, pill_fnt) / 2 + padx), y, pill_text, pill_fnt,
               padx=padx, pady=12, fill=accent, color=RED if urgent else NAVY)
         y += pill_h + 44
     dr.rectangle((right + 22, y + 18, right + 32, y + lh * len(lines) - 26), fill=accent)
-    _lines(dr, lines, fnt, right, y, lh)
+    for i, ln in enumerate(lines):
+        if len(lines) > 1:
+            ln = _kashida(ln, fnt, bw)
+        words = ln.split()
+        ws = [_width(w, fnt) for w in words]
+        gap = (bw - sum(ws)) / (len(words) - 1) if len(words) > 1 else 0
+        if len(lines) < 2 or len(words) < 2:
+            _text(dr, (right, y + i * lh), ln, fnt, WHITE, "ra")
+            continue
+        x = right
+        for w, wd in zip(words, ws):  # RTL: mn l imin l l issar; l ba9i mn l faragh mtsawi bin l kalimat
+            _text(dr, (round(x), y + i * lh), w, fnt, WHITE, "ra")
+            x -= wd + gap
 
 
 def make_text_post(title: str, category: str, urgent: bool = False) -> bytes:
