@@ -2220,6 +2220,11 @@ def ig_check_token() -> None:
 
 
 def card_story(c: dict, e: dict, raw: Image.Image | None) -> bytes | None:
+    if e["kind"] == "text":  # cover bla tswira: story b nefs design (titre kbir)
+        try:
+            return cover.make_text_story(e.get("title", ""), e.get("category", ""), e.get("urgent", False))
+        except Exception as ex:
+            log(f"[story KO] {ex.__class__.__name__}: {ex}")
     if raw and e.get("raw") and e["kind"] != "match":
         try:
             return cover.make_story(raw, e.get("title", ""), e.get("category", ""), crop_to,
@@ -2940,11 +2945,17 @@ def build_covers(item: dict, out: dict, img, small, upscaled: bool, urgent: bool
     source = next((ch for ch in real if ch["origin"] == "source" and min(ch["native"]) >= 600), None)
     picks = [ch for ch in (source, person) if ch] or real[:1]
     picks += [ch for ch in choices if ch["stock"]][:N_FREE - bool(person)]
-    if not picks:  # bla source, bla chakhsiya, bla 7orra >= IMG_MIN_SCORE: cover b design bla tswira
-        log("[cover] bla 7tta tswira → cover bla tswira (design Saispress)")
-        picks = [{"img": cover.blank_bg(urgent), "native": (1600, 1000), "up": False, "stock": False,
-                  "origin": "bla tswira", "credit": "Bla tswira: cover b design Saispress", "hash": None}]
     entries = []
+    if not picks:  # bla source, bla chakhsiya, bla 7orra >= IMG_MIN_SCORE: cover b titre kbir (bla tswira)
+        try:
+            title, cat = out["instagram_title"], out.get("category", "")
+            entries.append({"cover": cover.make_text_post(title, cat, urgent), "raw": cover.make_text_site(title, cat, urgent),
+                            "kind": "text", "origin": "bla tswira", "hash": None, "free": True,
+                            "credit": "Bla tswira: cover b titre (design Saispress)", "stock": False, "title": title,
+                            "category": cat, "urgent": urgent})
+            log("[cover] bla 7tta tswira → cover b titre kbir")
+        except Exception as e:
+            log(f"[cover KO] bla tswira: {e.__class__.__name__}: {e}")
     for ch in picks:
         try:
             data, kind = cover.make_post(ch["img"], out["instagram_title"], out.get("category", ""), crop_to,
@@ -2957,7 +2968,7 @@ def build_covers(item: dict, out: dict, img, small, upscaled: bool, urgent: bool
         ch["img"].convert("RGB").save(raw, "JPEG", quality=95, optimize=True, subsampling=0)
         entries.append({"cover": data, "raw": raw.getvalue(), "kind": kind, "origin": ch["origin"],
                         "hash": f"{ch['hash']:016x}" if ch["hash"] is not None else None,
-                        "free": ch["stock"] or ch["origin"] in ("rasmiya", "bla tswira"), "credit": ch["credit"],
+                        "free": ch["stock"] or ch["origin"] == "rasmiya", "credit": ch["credit"],
                         "stock": ch["stock"], "title": out["instagram_title"], "category": out.get("category", ""),
                         "urgent": urgent})
     if match and (match.get("home_badge") is not None or match.get("away_badge") is not None):

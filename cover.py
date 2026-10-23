@@ -7,6 +7,7 @@ Jouj d les formes:
          Ila l9ina chi3arat: cover d chi3arat f blast tsawer 7orra (make_badges_post).
   story: 1080x1920 (make_story): tswira l fo9, panel navy, titre f l wost, logo, blasa khawya l sticker d lien.
 """
+import itertools
 import re
 from io import BytesIO
 from pathlib import Path
@@ -357,23 +358,108 @@ def make_badges_post(title: str, match: dict, urgent: bool = False) -> bytes:
     return _jpeg(layout_match(bg, clean_title(title), plain, lambda im, size: im, False, urgent))
 
 
-def blank_bg(urgent: bool = False, size: tuple[int, int] = (1600, 1000)) -> Image.Image:
-    """"Tswira" d khabar bla 7tta tswira: navy b dégradé, logo kbir f l wost w khatt dahbi (7mer f 3ajil).
-    Katdkhol l make_post / make_story / site b7al ay tswira, bach card ma tb9ach bla cover."""
-    w, h = size
-    accent = RED if urgent else GOLD
-    im = Image.new("RGBA", size, (*NAVY, 255))
-    glow = Image.new("RGBA", size, (0, 0, 0, 0))
-    ImageDraw.Draw(glow).ellipse((w * 0.1, -h * 0.3, w * 0.9, h * 0.9), fill=(*NAVY2, 255))
-    im.alpha_composite(glow.filter(ImageFilter.GaussianBlur(160)))
-    lg = _logo(round(h * 0.26))
-    lg.putalpha(lg.getchannel("A").point(lambda v: v * 200 // 255))
-    im.alpha_composite(lg, ((w - lg.width) // 2, round(h * 0.40) - lg.height // 2))
+# Cover bla tswira (khabar bla source, bla chakhsiya w bla tswira 7orra mnasba): titre kbir howa l cover.
+STEPS_TEXT = [(3, 118, 96), (4, 104, 84), (5, 90, 72), (6, 76, 62)]
+
+
+def _text_bg(w: int, h: int, urgent: bool) -> Image.Image:
+    """Navy (7mer f 3ajil) b glow, khtout mayla chfafa w logo kbir chfaf (filigrane)."""
+    base, glow_c = ((150, 12, 26), RED) if urgent else (NAVY, NAVY2)
+    im = Image.new("RGBA", (w, h), (*base, 255))
+    glow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(glow).ellipse((-w * 0.3, -h * 0.25, w * 1.0, h * 0.75), fill=(*glow_c, 230))
+    im.alpha_composite(glow.filter(ImageFilter.GaussianBlur(min(w, h) // 5)))
+    lines = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ld = ImageDraw.Draw(lines)
+    for x in range(-h, w, 46):
+        ld.line([(x, h), (x + h, 0)], fill=(255, 255, 255, 9), width=2)
+    im.alpha_composite(lines)
+    mark = _logo(round(h * 0.62))
+    mark.putalpha(mark.getchannel("A").point(lambda v: v * 14 // 255))
+    im.alpha_composite(mark, (-round(mark.width * 0.28), h - round(mark.height * 0.78)))
+    return im
+
+
+def _fit_balanced(text: str, name: str, maxw: int, steps):
+    """_fit_title + bla ster lakher fih klma wa7da (kanssghro 7tta 75% bach yn9as ster) + stoura mtwazniin."""
+    fnt, lines = _fit_title(text, name, maxw, steps)
+    n = len(lines)
+    if n > 1 and len(lines[-1].split()) == 1:
+        for size in range(fnt.size - 2, round(fnt.size * 0.75) - 1, -2):
+            if len(_wrap(text, _font(name, size), maxw)) < n:
+                fnt, n = _font(name, size), n - 1
+                break
+    words = text.split()
+    best, best_key = None, None
+    for cuts in itertools.combinations(range(1, len(words)), n - 1) if 1 < n < len(words) else ():
+        b = (0, *cuts, len(words))
+        ws = [_width(" ".join(words[b[i]:b[i + 1]]), fnt) for i in range(n)]
+        if max(ws) > maxw:
+            continue
+        key = (sum(b[i + 1] - b[i] == 1 for i in range(n)), max(ws) - min(ws))
+        if best_key is None or key < best_key:
+            best, best_key = b, key
+    return fnt, ([" ".join(words[best[i]:best[i + 1]]) for i in range(n)] if best else _wrap(text, fnt, maxw))
+
+
+def _text_block(im: Image.Image, title: str, category: str, urgent: bool, right: int, maxw: int,
+                top: int, bottom: int, steps, pill_size: int = 40) -> None:
+    """Pill (rkn / عاجل) + titre kbir mcentri bin top w bottom, b khatt dahbi (7mer: byed) l imin."""
     dr = ImageDraw.Draw(im)
-    lw = round(w * 0.18)
-    dr.rectangle(((w - lw) // 2, round(h * 0.40) + lg.height // 2 + 40, (w + lw) // 2, round(h * 0.40) + lg.height // 2 + 48),
-                 fill=accent)
-    return im.convert("RGB")
+    accent = WHITE if urgent else GOLD
+    pill_text = "عاجل" if urgent else category
+    pill_fnt = _font("Tajawal-Black.ttf" if urgent else "Tajawal-Bold.ttf", pill_size)
+    pill_h = (sum(pill_fnt.getmetrics()) + 10) if pill_text else 0
+    fnt, lines = _fit_balanced(title, "Tajawal-Black.ttf", maxw, steps)
+    lh = int(fnt.size * 1.24)
+    block = (pill_h + 44 if pill_text else 0) + lh * len(lines)
+    y = top + max(0, (bottom - top - block) // 2)
+    if pill_text:
+        _pill(dr, right, y, pill_text, pill_fnt, padx=28, pady=10, fill=accent, color=RED if urgent else NAVY)
+        y += pill_h + 44
+    dr.rectangle((right + 22, y + 18, right + 32, y + lh * len(lines) - 26), fill=accent)
+    _lines(dr, lines, fnt, right, y, lh)
+
+
+def make_text_post(title: str, category: str, urgent: bool = False) -> bytes:
+    """Cover 1080x1350 bla tswira: titre kbir f l wost (b7al "quote card"), logo w saispress.com lta7t."""
+    title, category = clean_title(title), clean_title(category)[:20]
+    im = _text_bg(W, H, urgent)
+    _text_block(im, title, category, urgent, 990, 880, 90, H - 200, STEPS_TEXT)
+    dr = ImageDraw.Draw(im)
+    dr.rectangle((0, H - (12 if urgent else 8), W, H), fill=WHITE if urgent else GOLD)
+    lg = _logo(84)
+    im.alpha_composite(lg, (W - lg.width - 70, H - 72 - lg.height))
+    _text(dr, (70, H - 72 - lg.height // 2), SITE, _font("Tajawal-Bold.ttf", 30), WHITE if urgent else GOLD_L, "lm")
+    return _jpeg(im)
+
+
+def make_text_site(title: str, category: str, urgent: bool = False) -> bytes:
+    """Tswira d site 1600x900 bla tswira (nefs design)."""
+    title, category = clean_title(title), clean_title(category)[:20]
+    w, h = 1600, 900
+    im = _text_bg(w, h, urgent)
+    _text_block(im, title, category, urgent, w - 130, w - 420, 60, h - 60,
+                [(3, 104, 84), (4, 88, 70), (5, 74, 60)], 36)
+    lg = _logo(96)
+    im.alpha_composite(lg, (70, h - 70 - lg.height))
+    return _jpeg(im)
+
+
+def make_text_story(title: str, category: str, urgent: bool = False) -> bytes:
+    """Story 1080x1920 bla tswira: titre kbir, logo, w blasa khawya l sticker d lien (b7al make_story)."""
+    title, category = clean_title(title), clean_title(category)[:20]
+    im = _text_bg(SW, SH, urgent)
+    _text_block(im, title, category, urgent, 990, 880, 300, 1300, STEPS_TEXT, 44)
+    dr = ImageDraw.Draw(im)
+    accent = WHITE if urgent else GOLD
+    lg = _logo(110)
+    im.alpha_composite(lg, ((SW - lg.width) // 2, 1330))
+    x0 = (SW - SLOT_W) // 2
+    dr.rounded_rectangle((x0, SLOT_Y, x0 + SLOT_W, SLOT_Y + SLOT_H), radius=SLOT_R,
+                         fill=(150, 12, 26) if urgent else NAVY2, outline=accent, width=4)
+    _chevrons(dr, SW // 2, SLOT_Y - 58, 26, accent)
+    return _jpeg(im)
 
 
 def choose_layout(native: tuple[int, int], upscaled: bool, n_lines: int) -> str:
