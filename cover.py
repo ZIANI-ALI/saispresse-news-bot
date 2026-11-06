@@ -13,7 +13,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Callable
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont, features
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageStat, features
 
 ASSETS = Path(__file__).resolve().parent / "assets"
 W, H = 1080, 1350
@@ -112,13 +112,80 @@ def _logo(height: int) -> Image.Image:
     return lg.resize((round(lg.width * height / lg.height), height), Image.LANCZOS)
 
 
-def _stock_label(dr, xy) -> None:
-    _text(dr, xy, "صورة تعبيرية", _font("Tajawal-Bold.ttf", 26), WHITE, "lm")
+# Lisibilité d l byad fo9 tswira fat7a: dell mbellar dima + scrim ghame9 ghir ila l fond fate7.
+LIGHT_LUM = 150    # luminance (0-255) li mn fo9ha kanzido scrim
+SCRIM_MAX = 150    # alpha max d scrim (fond byed 100%)
+SHADOW_ALPHA = 170
 
 
-def _lines(dr, lines, fnt, right: int, top: int, lh: int) -> None:
+def _luma(im: Image.Image, box) -> float:
+    """Luminance moyenne d l mante9a (box = x0, y0, x1, y1), m9ssa 3la 7doud tswira."""
+    x0, y0, x1, y1 = (max(0, round(box[0])), max(0, round(box[1])),
+                      min(im.width, round(box[2])), min(im.height, round(box[3])))
+    if x1 <= x0 or y1 <= y0:
+        return 0.0
+    return ImageStat.Stat(im.crop((x0, y0, x1, y1)).convert("L")).mean[0]
+
+
+def _scrim(im: Image.Image, box, pad: int = 30) -> None:
+    """Ila l fond ta7t box fate7: lta7a k7la mbellara (9wiya 3la 7sab l byad) bach l byad yban."""
+    lum = _luma(im, box)
+    if lum <= LIGHT_LUM:
+        return
+    alpha = round(SCRIM_MAX * min(1.0, (lum - LIGHT_LUM) / 80))
+    x0, y0, x1, y1 = box
+    layer = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    ImageDraw.Draw(layer).rounded_rectangle(
+        (x0 - pad, y0 - pad, x1 + pad, y1 + pad), radius=pad, fill=(0, 0, 0, alpha))
+    im.alpha_composite(layer.filter(ImageFilter.GaussianBlur(pad * 0.8)))
+
+
+def _shadow(im: Image.Image, mask: Image.Image, xy, blur: float, alpha: int = SHADOW_ALPHA,
+            off: tuple[int, int] = (3, 5)) -> None:
+    """Dell k7el mbellar mn mask (L, b 7jem im) f xy + off."""
+    sh = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    sh.paste((0, 0, 0, alpha), (round(xy[0] + off[0]), round(xy[1] + off[1])), mask)
+    im.alpha_composite(sh.filter(ImageFilter.GaussianBlur(blur)))
+
+
+def _legible_text(im: Image.Image, xy, text: str, fnt, fill, anchor: str, scrim: bool = True) -> None:
+    """Nass fo9 tswira: scrim (ila fate7) + dell mbellar + nass."""
+    t, kw = _shape(text)
+    box = ImageDraw.Draw(im).textbbox(xy, t, font=fnt, anchor=anchor, **kw)
+    if scrim:
+        _scrim(im, box, pad=max(18, fnt.size // 2))
+    mask = Image.new("L", im.size, 0)
+    ImageDraw.Draw(mask).text(xy, t, font=fnt, fill=255, anchor=anchor, **kw)
+    _shadow(im, mask, (0, 0), blur=max(4, fnt.size / 10))
+    _text(ImageDraw.Draw(im), xy, text, fnt, fill, anchor)
+
+
+def _paste_logo(im: Image.Image, lg: Image.Image, xy) -> None:
+    """Logo (byed) fo9 tswira: scrim (ila fate7) + dell mbellar + logo."""
+    x, y = xy
+    _scrim(im, (x, y, x + lg.width, y + lg.height), pad=max(20, lg.height // 3))
+    _shadow(im, lg.getchannel("A"), xy, blur=max(5, lg.height / 10))
+    im.alpha_composite(lg, (x, y))
+
+
+def _stock_label(im: Image.Image, xy) -> None:
+    _legible_text(im, xy, "صورة تعبيرية", _font("Tajawal-Bold.ttf", 26), WHITE, "lm")
+
+
+def _lines(im: Image.Image, lines, fnt, right: int, top: int, lh: int, legible: bool = False) -> None:
+    """Stoura d titre. legible: fo9 tswira (scrim ila fate7 + dell)."""
+    if legible:
+        dr = ImageDraw.Draw(im)
+        boxes = []
+        for i, ln in enumerate(lines):
+            t, kw = _shape(ln)
+            boxes.append(dr.textbbox((right, top + i * lh), t, font=fnt, anchor="ra", **kw))
+        _scrim(im, (min(b[0] for b in boxes), boxes[0][1], right, boxes[-1][3]), pad=max(24, fnt.size // 2))
     for i, ln in enumerate(lines):
-        _text(dr, (right, top + i * lh), ln, fnt, WHITE, "ra")
+        if legible:
+            _legible_text(im, (right, top + i * lh), ln, fnt, WHITE, "ra", scrim=False)
+        else:
+            _text(ImageDraw.Draw(im), (right, top + i * lh), ln, fnt, WHITE, "ra")
 
 
 def layout_a(img: Image.Image, title: str, category: str, crop: Crop, stock: bool,
@@ -137,6 +204,7 @@ def layout_a(img: Image.Image, title: str, category: str, crop: Crop, stock: boo
     glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     ImageDraw.Draw(glow).ellipse((-200, text_top - 60, 1300, H + 150), fill=(*NAVY2, 140))
     im.alpha_composite(glow.filter(ImageFilter.GaussianBlur(120)))
+    _lines(im, lines, fnt, 1000, text_top, lh, legible=True)  # stoura l fo9 9ad ykouno fo9 tswira
     dr = ImageDraw.Draw(im)
     accent = RED if urgent else GOLD
     if urgent:  # "عاجل" kbira 7amra blast catégorie
@@ -145,13 +213,12 @@ def layout_a(img: Image.Image, title: str, category: str, crop: Crop, stock: boo
     elif category:
         _pill(dr, 1010, text_top - 78, category, _font("Tajawal-Bold.ttf", 34))
     dr.rectangle((1022, text_top + 14, 1032, text_top + block - 22), fill=accent)
-    _lines(dr, lines, fnt, 1000, text_top, lh)
     dr.rectangle((0, H - (12 if urgent else 8), W, H), fill=accent)
     _text(dr, (70, H - 44), SITE, _font("Tajawal-Bold.ttf", 28), GOLD_L, "lm")
     lg = _logo(70)
-    im.alpha_composite(lg, (W - lg.width - 50, 48))
+    _paste_logo(im, lg, (W - lg.width - 50, 48))
     if stock:
-        _stock_label(dr, (50, 83))
+        _stock_label(im, (50, 83))
     return im
 
 
@@ -168,15 +235,15 @@ def layout_d(img: Image.Image, title: str, category: str, crop: Crop, stock: boo
     im.alpha_composite(box)
     dr = ImageDraw.Draw(im)
     dr.rectangle((W - 72, by0, W - 60, by1), fill=GOLD)
-    _lines(dr, lines, fnt, W - 110, by0 + 30, lh)
+    _lines(im, lines, fnt, W - 110, by0 + 30, lh)
     if category:
         _pill(dr, W - 110, by0 - 62, category, _font("Tajawal-Bold.ttf", 32), padx=20, pady=8)
     dr.rectangle((28, 28, W - 28, H - 28), outline=GOLD, width=3)
     _text(dr, (95, by1 - 30), SITE, _font("Tajawal-Bold.ttf", 24), GOLD_L, "lm")
     lg = _logo(64)
-    im.alpha_composite(lg, (W - lg.width - 65, 62))
+    _paste_logo(im, lg, (W - lg.width - 65, 62))
     if stock:
-        _stock_label(dr, (65, 94))
+        _stock_label(im, (65, 94))
     return im
 
 
@@ -254,9 +321,9 @@ def layout_match(img: Image.Image, title: str, match: dict, crop: Crop, stock: b
     dr.rectangle((0, H - (12 if urgent else 8), W, H), fill=accent)
     _text(dr, (70, H - 44), SITE, _font("Tajawal-Bold.ttf", 28), GOLD_L, "lm")
     lg = _logo(70)
-    im.alpha_composite(lg, (W - lg.width - 50, 48))
+    _paste_logo(im, lg, (W - lg.width - 50, 48))
     if stock:
-        _stock_label(dr, (50, 83))
+        _stock_label(im, (50, 83))
     return im
 
 
@@ -634,7 +701,8 @@ def make_story(img: Image.Image, title: str, category: str, crop: Crop, stock: b
     dr = ImageDraw.Draw(im)
     dr.rectangle((0, STORY_PH, SW, STORY_PH + 8), fill=accent)
     if stock:
-        _text(dr, (50, STORY_PH - 40), "صورة تعبيرية", _font("Tajawal-Bold.ttf", 28), WHITE, "lm")
+        _legible_text(im, (50, STORY_PH - 40), "صورة تعبيرية", _font("Tajawal-Bold.ttf", 28), WHITE, "lm")
+        dr = ImageDraw.Draw(im)
 
     pill_fnt = _font("Tajawal-Black.ttf", 44) if urgent else _font("Tajawal-Bold.ttf", 36)
     pill_text = "عاجل" if urgent else category
