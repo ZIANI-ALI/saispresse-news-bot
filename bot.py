@@ -3109,10 +3109,13 @@ def handle_judged(state: dict, it: dict, v: dict, today: str) -> tuple[dict | No
         count(state, it["source"], "first")
     urgent = urgent and score > HIGH_SCORE and not it.get("opinion")  # 3ajil ghir 9-10, w machi ra2y
     sent_today = state.setdefault("sent", {}).get(today, 0)
-    min_score = INTL_MIN_SCORE if it.get("intl") and not it.get("manual") else MIN_SCORE
+    # source dawliya: ghir 10 (ila ma kanch khabar mghribi kaytsna nass dyalo)
+    min_score = INTL_MIN_SCORE if it.get("intl") and not it.get("manual") and not waiting else MIN_SCORE
     if score < min_score:
         log(f"[ma mohimch {score}/10{' (source dawliya)' if min_score != MIN_SCORE else ''}] "
             f"{it['source']}: {it['title'][:70]}")
+        if score >= MIN_SCORE:  # tl3 ghir b source dawliya: ma n3a9louch, bach source mghribiya tsiftou mn b3d
+            return None, 0
         story = remember_story(state, it)
         save_state(state)
         return story, 0
