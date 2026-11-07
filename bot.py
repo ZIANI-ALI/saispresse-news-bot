@@ -1144,6 +1144,12 @@ SYSTEM_PROMPT = """أنت رئيس تحرير محترف في جريدة إلك�
 - نفس قواعد الأمانة: لا معلومة غير موجودة في الأصل، ولا تغيير في الأرقام أو الأسماء أو درجة اليقين.
 - ثم سطر أخير فيه من 3 إلى 5 هاشتاغات عربية مناسبة.
 
+منشور فيسبوك (facebook): سطر أو سطران فقط (من 20 إلى 45 كلمة) للنشر في مجموعات الأخبار على فيسبوك، يدفع القارئ لفتح رابط المقال:
+- ابدأ بأقوى معلومة أو بداية الخبر بأسلوب مشوّق يثير الفضول، ويمكن أن يبدأ برمز تعبيري واحد مناسب.
+- أعطِ معلومة أو اثنتين فقط من الخبر واترك باقي التفاصيل للمقال (لا تكشف كل شيء).
+- نفس قواعد الأمانة: لا معلومة غير موجودة في الأصل، لا تهويل ولا وعود كاذبة ولا "شاهد" أو "فيديو" إذا لم يكن هناك فيديو، ولا تحويل الشبهة إلى إدانة.
+- بدون هاشتاغات وبدون رابط وبدون عبارة "التفاصيل في الرابط" (تُضاف تلقائياً).
+
 كلمات البحث عن صورة (image_query): ثلاث عمليات بحث بالإنجليزية لصورة توضيحية في بنك صور مجاني، كل واحدة من 2 إلى 5 كلمات، مفصولة بـ " | "، من الأدق إلى الأعم، مستخرجة من تفاصيل النص (المكان، الأشياء، طبيعة الحدث) وليس من العنوان وحده. الأولى تصف ما كان سيظهر في صورة حقيقية لمكان الخبر (الشيء أو المشهد نفسه)، والثانية قريبة منها، والثالثة رمز عام للموضوع. مثال لخبر عن العثور على عظام بشرية في شعبة: "bone in red dirt | skull buried soil | crime scene tape"؛ ولخبر عن فيضانات: "flooded street cars | heavy rain city street | storm clouds". إذا وقع الحدث في المغرب أضف Morocco أو Moroccan في البحثين الأولين، مع اسم المدينة أو المنطقة إن ذُكر (مثال لخبر عن قنطرة في ورزازات: "Ouarzazate bridge Morocco | Morocco desert road bridge | concrete bridge construction detail")، واجعل الثالث شيئاً قريباً محايداً وليس منظراً عاماً قد يكون من بلد آخر، ولا تكتب كلمات عامة قد تجلب علم أو معالم دولة أخرى؛ أما إذا وقع في بلد آخر (حتى لو كان المصدر مغربياً) فلا تكتب Morocco ولا Moroccan أبداً، واذكر ذلك البلد إن كان مفيداً. اختر أشياء أو أماكن أو رموزاً (أعلام، مبانٍ، آليات، معدات، خرائط) وليس أشخاصاً أو عائلات أو صور جماعية، لأن صور الأشخاص في بنوك الصور قد تكون مضللة. لا تذكر أسماء أشخاص.
 الشخص الرئيسي (main_person): فقط إذا كان الخبر يدور كله حول شخصية عامة واحدة معروفة (تصريح، تعيين، نشاط، قضية تخص شخصاً واحداً)، اكتب اسمها الكامل كما يُبحث عنه في Google. إذا كان الخبر عن حدث أو موضوع عام أو عدة أشخاص، اتركه فارغاً. لا تذكر أبداً أشخاصاً عاديين أو مشتبهاً فيهم أو ضحايا.
 الاسم اللاتيني (main_person_en): إذا ملأت main_person، اكتب نفس الاسم بالحروف اللاتينية كما يُكتب في ويكيبيديا الإنجليزية (مثال: Aziz Akhannouch، Vladimir Putin، Cristiano Ronaldo). وإلا فارغ.
@@ -1163,6 +1169,7 @@ RESPONSE_SCHEMA = {
         "article": {"type": "STRING"},
         "instagram_title": {"type": "STRING"},
         "instagram": {"type": "STRING"},
+        "facebook": {"type": "STRING"},
         "image_query": {"type": "STRING"},
         "main_person": {"type": "STRING"},
         "main_person_en": {"type": "STRING"},
@@ -1179,7 +1186,7 @@ RESPONSE_SCHEMA = {
     },
     "required": ["title", "article", "instagram_title", "instagram"],
     # match_result 9bel match: Gemini kaygoul wach natija d match 3ad kay3mer l 9yam
-    "propertyOrdering": ["title", "article", "instagram_title", "instagram", "image_query", "main_person",
+    "propertyOrdering": ["title", "article", "instagram_title", "instagram", "facebook", "image_query", "main_person",
                          "main_person_en", "category", "institution", "match_result", "match"],
 }
 
@@ -1789,6 +1796,8 @@ def card_texts(c: dict, item: dict, out: dict) -> None:
     if out.get("instagram"):
         c["caption"] = f"{esc(out['instagram'].strip())}{credit}"
         c["ig_caption"] = out["instagram"].strip() + (f"\n\n{item['credit']}" if item.get("credit") else "")
+    if out.get("facebook"):
+        c["fb"] = out["facebook"].strip()
     if out.get("article"):
         c["site"] = {"title": out["title"].strip(), "category": (out.get("category") or "").strip(),
                      "body": out["article"].strip() + (f"\n{item['credit']}" if item.get("credit") else "")}
@@ -1859,7 +1868,8 @@ def card_kb(c: dict) -> dict:
             auto = ig_ready() or bool(SITE_PUBLISH_URL and BOT_PUBLISH_SECRET)
             rows.append([b("🔁 Pack 3awtani" if c.get("published") else "🚀 Publier" if auto else "📦 Pack final", "pub")])
             rows.append([b("↩️ Bddel cover", "bk")] + ([b("🖼 Tswira d site", "sp")] if site_cands(c) else []))
-    texts = ([b("📄 النسخة 1", "nas")] if c["nass"] else []) + ([b("📝 Caption", "cap")] if c["caption"] else [])
+    texts = ([b("📄 النسخة 1", "nas")] if c["nass"] else []) + ([b("📝 Caption", "cap")] if c["caption"] else []) \
+        + ([b("📘 Facebook", "fb")] if c.get("fb") and c["chosen"] is not None else [])
     if texts:
         rows.append(texts)
     return {"inline_keyboard": rows}
@@ -2373,6 +2383,20 @@ def card_files(mid: int, c: dict, e: dict, parts: set, raw: Image.Image | None, 
                 reply_to=mid)
 
 
+def card_facebook(mid: int, c: dict) -> None:
+    """📘 Facebook: tswira d cover (quality kamla) + stora mochawi9a w lien d l article (l groupat d akhbar)."""
+    url = c.get("site_url") or ""
+    text = c["fb"] + (f"\n\n👈 التفاصيل: {url}" if url else "")
+    cap = esc(text) + ("" if url else "\n\n⚠️ <i>Ma kaynch lien d article (site mazal ma tnchrch): zidou b l yed.</i>")
+    e = c["entries"][c["chosen"]]
+    sent = tg_call("sendDocument", {"chat_id": TELEGRAM_CHAT_ID, "document": e["doc"], "caption": cap,
+                                    "parse_mode": "HTML", "reply_parameters": {"message_id": mid,
+                                                                                "allow_sending_without_reply": True}},
+                   timeout=90)
+    if not sent:
+        tg_send(cap, reply_to=mid)
+
+
 def card_run(q: dict, mid: int, c: dict) -> None:
     with _cards_lock:
         c["packs"].append(time.time())
@@ -2405,7 +2429,7 @@ def on_callback(q: dict) -> None:
         tg_answer(q, "Had l khabar 9dim (ma b9ach f memoire d bot).")
         return
     ents, o = c["entries"], c["opts"]
-    if card_busy(c) and act not in ("nas", "cap", "x"):
+    if card_busy(c) and act not in ("nas", "cap", "fb", "x"):
         tg_answer(q, "⏳ Kanchr had l khabar daba… tsenna chwiya.")
         return
     if c.get("site_mode") and act not in ("sn", "sb", "sc", "sf", "sok"):  # bouton 9dim mn 9bel mode d site
@@ -2494,6 +2518,9 @@ def on_callback(q: dict) -> None:
     elif act == "nas" and c["nass"]:
         tg_answer(q)
         tg_send(c["nass"], reply_to=mid)
+    elif act == "fb" and c.get("fb") and c["chosen"] is not None:
+        tg_answer(q)
+        card_facebook(mid, c)
     elif act == "cap" and c["caption"]:
         tg_answer(q)
         tg_send(c["caption"], reply_to=mid)
