@@ -19,6 +19,7 @@ Env:
   REPORT_HOUR          default 22 (rapport youmi: ina source kaynchr lowl)
   MIN_SCORE            default 8 (ahamiya mn 10: khabar wa7ed b had score f kol sa3a)
   HIGH_SCORE           default 8 (men had score l fo9 kolchi kaytsifet, bla 7add)
+  INTL_MIN_SCORE       default 10 (sources machi mgharba (intl=true): ghir had score l fo9)
   JUDGE_WAIT           default 300 (s: akhbar jdad kaytjm3o had l mudda w kaytjudgaw f call Gemini wa7d)
   JUDGE_BATCH          default 15 (max akhbar f call wa7d d judge)
   EDITOR_IDS           ikhtiyari: IDs Telegram (b virgule) li y9dro yclickiw 3la boutons (khawi = ay wa7d f chat)
@@ -87,6 +88,7 @@ DRY_RUN = os.environ.get("DRY_RUN") == "1"
 NO_AI = os.environ.get("NO_AI") == "1"
 DEDUP_HOURS = float(os.environ.get("DEDUP_HOURS", "24"))
 MIN_SCORE = int(os.environ.get("MIN_SCORE", "8"))      # ahamiya mn 10: >= hadi kaytsifet kolchi (7tta dawli)
+INTL_MIN_SCORE = int(os.environ.get("INTL_MIN_SCORE", "10"))  # source dawliya (intl=true): ghir 10/10
 HIGH_SCORE = int(os.environ.get("HIGH_SCORE", "8"))    # > hadi (9-10): 3ajil, w bla nass kaytsifet daba
 JUDGE_WAIT = float(os.environ.get("JUDGE_WAIT", "300"))  # kantsnaw had l mudda (s) bach njm3o akhbar f call wa7d
 JUDGE_BATCH = int(os.environ.get("JUDGE_BATCH", "15"))   # max akhbar f call wa7d d judge
@@ -3107,8 +3109,13 @@ def handle_judged(state: dict, it: dict, v: dict, today: str) -> tuple[dict | No
         count(state, it["source"], "first")
     urgent = urgent and score > HIGH_SCORE and not it.get("opinion")  # 3ajil ghir 9-10, w machi ra2y
     sent_today = state.setdefault("sent", {}).get(today, 0)
-    if score < MIN_SCORE:
-        log(f"[ma mohimch {score}/10] {it['source']}: {it['title'][:70]}")
+    # source dawliya: ghir 10 (ila ma kanch khabar mghribi kaytsna nass dyalo)
+    min_score = INTL_MIN_SCORE if it.get("intl") and not it.get("manual") and not waiting else MIN_SCORE
+    if score < min_score:
+        log(f"[ma mohimch {score}/10{' (source dawliya)' if min_score != MIN_SCORE else ''}] "
+            f"{it['source']}: {it['title'][:70]}")
+        if score >= MIN_SCORE:  # tl3 ghir b source dawliya: ma n3a9louch, bach source mghribiya tsiftou mn b3d
+            return None, 0
         story = remember_story(state, it)
         save_state(state)
         return story, 0
