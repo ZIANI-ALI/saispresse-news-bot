@@ -2386,7 +2386,7 @@ def card_files(mid: int, c: dict, e: dict, parts: set, raw: Image.Image | None, 
 
 def card_facebook(mid: int, c: dict) -> None:
     """📘 Facebook (ghir mn b3d ma ytnchr f site): tswira d cover (quality kamla) + stora mochawi9a w lien d l article."""
-    cap = esc(f"{c['fb']}\n\n👈 التفاصيل: {c['site_url']}")
+    cap = esc(f"{c['fb']}\n\n👈 التفاصيل: {short_url(c['site_url'])}")
     e = c["entries"][c["chosen"]]
     sent = tg_call("sendDocument", {"chat_id": TELEGRAM_CHAT_ID, "document": e["doc"], "caption": cap,
                                     "parse_mode": "HTML", "reply_parameters": {"message_id": mid,
