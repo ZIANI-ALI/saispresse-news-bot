@@ -1869,7 +1869,7 @@ def card_kb(c: dict) -> dict:
             rows.append([b("🔁 Pack 3awtani" if c.get("published") else "🚀 Publier" if auto else "📦 Pack final", "pub")])
             rows.append([b("↩️ Bddel cover", "bk")] + ([b("🖼 Tswira d site", "sp")] if site_cands(c) else []))
     texts = ([b("📄 النسخة 1", "nas")] if c["nass"] else []) + ([b("📝 Caption", "cap")] if c["caption"] else []) \
-        + ([b("📘 Facebook", "fb")] if c.get("fb") and c["chosen"] is not None else [])
+        + ([b("📘 Facebook", "fb")] if c.get("fb") and c.get("site_url") and c["chosen"] is not None else [])
     if texts:
         rows.append(texts)
     return {"inline_keyboard": rows}
@@ -2278,6 +2278,8 @@ def card_pack(mid: int, c: dict) -> str:
             if url:
                 c["site_url"] = url
                 c["site_line"] = f"🌐 Site: <a href=\"{html.escape(url)}\">tnchr ✅</a>"
+                if c.get("fb"):  # 📘 stora d Facebook m3a lien, direct mn b3d site
+                    card_facebook(mid, c)
             else:
                 log(f"[site KO] {err}")
                 c["site_line"] = f"⚠️ Site ma tnchrch ({esc(err)}): tswira w النسخة 1 f l pack"
@@ -2384,10 +2386,8 @@ def card_files(mid: int, c: dict, e: dict, parts: set, raw: Image.Image | None, 
 
 
 def card_facebook(mid: int, c: dict) -> None:
-    """📘 Facebook: tswira d cover (quality kamla) + stora mochawi9a w lien d l article (l groupat d akhbar)."""
-    url = c.get("site_url") or ""
-    text = c["fb"] + (f"\n\n👈 التفاصيل: {url}" if url else "")
-    cap = esc(text) + ("" if url else "\n\n⚠️ <i>Ma kaynch lien d article (site mazal ma tnchrch): zidou b l yed.</i>")
+    """📘 Facebook (ghir mn b3d ma ytnchr f site): tswira d cover (quality kamla) + stora mochawi9a w lien d l article."""
+    cap = esc(f"{c['fb']}\n\n👈 التفاصيل: {c['site_url']}")
     e = c["entries"][c["chosen"]]
     sent = tg_call("sendDocument", {"chat_id": TELEGRAM_CHAT_ID, "document": e["doc"], "caption": cap,
                                     "parse_mode": "HTML", "reply_parameters": {"message_id": mid,
@@ -2518,7 +2518,7 @@ def on_callback(q: dict) -> None:
     elif act == "nas" and c["nass"]:
         tg_answer(q)
         tg_send(c["nass"], reply_to=mid)
-    elif act == "fb" and c.get("fb") and c["chosen"] is not None:
+    elif act == "fb" and c.get("fb") and c.get("site_url") and c["chosen"] is not None:
         tg_answer(q)
         card_facebook(mid, c)
     elif act == "cap" and c["caption"]:
