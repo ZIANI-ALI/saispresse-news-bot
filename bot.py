@@ -1868,8 +1868,7 @@ def card_kb(c: dict) -> dict:
             auto = ig_ready() or bool(SITE_PUBLISH_URL and BOT_PUBLISH_SECRET)
             rows.append([b("🔁 Pack 3awtani" if c.get("published") else "🚀 Publier" if auto else "📦 Pack final", "pub")])
             rows.append([b("↩️ Bddel cover", "bk")] + ([b("🖼 Tswira d site", "sp")] if site_cands(c) else []))
-    texts = ([b("📄 النسخة 1", "nas")] if c["nass"] else []) + ([b("📝 Caption", "cap")] if c["caption"] else []) \
-        + ([b("📘 Facebook", "fb")] if c.get("fb") and c.get("site_url") and c["chosen"] is not None else [])
+    texts = ([b("📄 النسخة 1", "nas")] if c["nass"] else []) + ([b("📝 Caption", "cap")] if c["caption"] else [])
     if texts:
         rows.append(texts)
     return {"inline_keyboard": rows}
@@ -2429,7 +2428,7 @@ def on_callback(q: dict) -> None:
         tg_answer(q, "Had l khabar 9dim (ma b9ach f memoire d bot).")
         return
     ents, o = c["entries"], c["opts"]
-    if card_busy(c) and act not in ("nas", "cap", "fb", "x"):
+    if card_busy(c) and act not in ("nas", "cap", "x"):
         tg_answer(q, "⏳ Kanchr had l khabar daba… tsenna chwiya.")
         return
     if c.get("site_mode") and act not in ("sn", "sb", "sc", "sf", "sok"):  # bouton 9dim mn 9bel mode d site
@@ -2518,9 +2517,6 @@ def on_callback(q: dict) -> None:
     elif act == "nas" and c["nass"]:
         tg_answer(q)
         tg_send(c["nass"], reply_to=mid)
-    elif act == "fb" and c.get("fb") and c.get("site_url") and c["chosen"] is not None:
-        tg_answer(q)
-        card_facebook(mid, c)
     elif act == "cap" and c["caption"]:
         tg_answer(q)
         tg_send(c["caption"], reply_to=mid)
