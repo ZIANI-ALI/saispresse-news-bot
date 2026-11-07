@@ -1144,6 +1144,12 @@ SYSTEM_PROMPT = """أنت رئيس تحرير محترف في جريدة إلك�
 - نفس قواعد الأمانة: لا معلومة غير موجودة في الأصل، ولا تغيير في الأرقام أو الأسماء أو درجة اليقين.
 - ثم سطر أخير فيه من 3 إلى 5 هاشتاغات عربية مناسبة.
 
+منشور فيسبوك (facebook): سطر أو سطران فقط (من 20 إلى 45 كلمة) للنشر في مجموعات الأخبار على فيسبوك، يدفع القارئ لفتح رابط المقال:
+- ابدأ بأقوى معلومة أو بداية الخبر بأسلوب مشوّق يثير الفضول، ويمكن أن يبدأ برمز تعبيري واحد مناسب.
+- أعطِ معلومة أو اثنتين فقط من الخبر واترك باقي التفاصيل للمقال (لا تكشف كل شيء).
+- نفس قواعد الأمانة: لا معلومة غير موجودة في الأصل، لا تهويل ولا وعود كاذبة ولا "شاهد" أو "فيديو" إذا لم يكن هناك فيديو، ولا تحويل الشبهة إلى إدانة.
+- بدون هاشتاغات وبدون رابط وبدون عبارة "التفاصيل في الرابط" (تُضاف تلقائياً).
+
 كلمات البحث عن صورة (image_query): ثلاث عمليات بحث بالإنجليزية لصورة توضيحية في بنك صور مجاني، كل واحدة من 2 إلى 5 كلمات، مفصولة بـ " | "، من الأدق إلى الأعم، مستخرجة من تفاصيل النص (المكان، الأشياء، طبيعة الحدث) وليس من العنوان وحده. الأولى تصف ما كان سيظهر في صورة حقيقية لمكان الخبر (الشيء أو المشهد نفسه)، والثانية قريبة منها، والثالثة رمز عام للموضوع. مثال لخبر عن العثور على عظام بشرية في شعبة: "bone in red dirt | skull buried soil | crime scene tape"؛ ولخبر عن فيضانات: "flooded street cars | heavy rain city street | storm clouds". إذا وقع الحدث في المغرب أضف Morocco أو Moroccan في البحثين الأولين، مع اسم المدينة أو المنطقة إن ذُكر (مثال لخبر عن قنطرة في ورزازات: "Ouarzazate bridge Morocco | Morocco desert road bridge | concrete bridge construction detail")، واجعل الثالث شيئاً قريباً محايداً وليس منظراً عاماً قد يكون من بلد آخر، ولا تكتب كلمات عامة قد تجلب علم أو معالم دولة أخرى؛ أما إذا وقع في بلد آخر (حتى لو كان المصدر مغربياً) فلا تكتب Morocco ولا Moroccan أبداً، واذكر ذلك البلد إن كان مفيداً. اختر أشياء أو أماكن أو رموزاً (أعلام، مبانٍ، آليات، معدات، خرائط) وليس أشخاصاً أو عائلات أو صور جماعية، لأن صور الأشخاص في بنوك الصور قد تكون مضللة. لا تذكر أسماء أشخاص.
 الشخص الرئيسي (main_person): فقط إذا كان الخبر يدور كله حول شخصية عامة واحدة معروفة (تصريح، تعيين، نشاط، قضية تخص شخصاً واحداً)، اكتب اسمها الكامل كما يُبحث عنه في Google. إذا كان الخبر عن حدث أو موضوع عام أو عدة أشخاص، اتركه فارغاً. لا تذكر أبداً أشخاصاً عاديين أو مشتبهاً فيهم أو ضحايا.
 الاسم اللاتيني (main_person_en): إذا ملأت main_person، اكتب نفس الاسم بالحروف اللاتينية كما يُكتب في ويكيبيديا الإنجليزية (مثال: Aziz Akhannouch، Vladimir Putin، Cristiano Ronaldo). وإلا فارغ.
@@ -1163,6 +1169,7 @@ RESPONSE_SCHEMA = {
         "article": {"type": "STRING"},
         "instagram_title": {"type": "STRING"},
         "instagram": {"type": "STRING"},
+        "facebook": {"type": "STRING"},
         "image_query": {"type": "STRING"},
         "main_person": {"type": "STRING"},
         "main_person_en": {"type": "STRING"},
@@ -1179,7 +1186,7 @@ RESPONSE_SCHEMA = {
     },
     "required": ["title", "article", "instagram_title", "instagram"],
     # match_result 9bel match: Gemini kaygoul wach natija d match 3ad kay3mer l 9yam
-    "propertyOrdering": ["title", "article", "instagram_title", "instagram", "image_query", "main_person",
+    "propertyOrdering": ["title", "article", "instagram_title", "instagram", "facebook", "image_query", "main_person",
                          "main_person_en", "category", "institution", "match_result", "match"],
 }
 
@@ -1789,6 +1796,8 @@ def card_texts(c: dict, item: dict, out: dict) -> None:
     if out.get("instagram"):
         c["caption"] = f"{esc(out['instagram'].strip())}{credit}"
         c["ig_caption"] = out["instagram"].strip() + (f"\n\n{item['credit']}" if item.get("credit") else "")
+    if out.get("facebook"):
+        c["fb"] = out["facebook"].strip()
     if out.get("article"):
         c["site"] = {"title": out["title"].strip(), "category": (out.get("category") or "").strip(),
                      "body": out["article"].strip() + (f"\n{item['credit']}" if item.get("credit") else "")}
@@ -2268,6 +2277,8 @@ def card_pack(mid: int, c: dict) -> str:
             if url:
                 c["site_url"] = url
                 c["site_line"] = f"🌐 Site: <a href=\"{html.escape(url)}\">tnchr ✅</a>"
+                if c.get("fb"):  # 📘 stora d Facebook m3a lien, direct mn b3d site
+                    card_facebook(mid, c)
             else:
                 log(f"[site KO] {err}")
                 c["site_line"] = f"⚠️ Site ma tnchrch ({esc(err)}): tswira w النسخة 1 f l pack"
@@ -2371,6 +2382,18 @@ def card_files(mid: int, c: dict, e: dict, parts: set, raw: Image.Image | None, 
         tg_send(f"🔗 <b>Lien l story</b> (sticker 🔗 f l blasa l khawya lta7t, ktba «التفاصيل»):\n{html.escape(url)}" if url
                 else "🔗 Ma kaynch lien d article (site ma tnchrch): story bla sticker, wla nchr l site 9bel.",
                 reply_to=mid)
+
+
+def card_facebook(mid: int, c: dict) -> None:
+    """📘 Facebook (ghir mn b3d ma ytnchr f site): tswira d cover (quality kamla) + stora mochawi9a w lien d l article."""
+    cap = esc(f"{c['fb']}\n\n👈 التفاصيل: {c['site_url']}")
+    e = c["entries"][c["chosen"]]
+    sent = tg_call("sendDocument", {"chat_id": TELEGRAM_CHAT_ID, "document": e["doc"], "caption": cap,
+                                    "parse_mode": "HTML", "reply_parameters": {"message_id": mid,
+                                                                                "allow_sending_without_reply": True}},
+                   timeout=90)
+    if not sent:
+        tg_send(cap, reply_to=mid)
 
 
 def card_run(q: dict, mid: int, c: dict) -> None:
