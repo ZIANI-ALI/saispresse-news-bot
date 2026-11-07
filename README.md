@@ -18,7 +18,7 @@ Ila Gemini ma jawebch (quota): card katsifet b tswira d source + "⏳", w mlli y
 
 **Ghir l mohim:** Gemini kay3ti l kol khabar note d ahamiya mn 10. Kolchi li 3ndo `MIN_SCORE` (8) wla ktar kaytsifet bla 7add (bla limite f sa3a). `HIGH_SCORE` (8): ghir l 9-10 (> 8) kaykounou 3ajil. Tqder tbdel had l ar9am men Variables.
 
-**Akhbar dawliya:** sources b `"intl": true` (سكاي نيوز عربية، بي بي سي عربي; الجزيرة w فرانس 24 m7bousin: feed bati2). Khabar dawli kaytsifet b7al l akhrin: score >= `MIN_SCORE` (8).
+**Akhbar dawliya:** sources b `"intl": true` (سكاي نيوز عربية، بي بي سي عربي; الجزيرة w فرانس 24 m7bousin: feed bati2). Sources machi mgharba kaytsifet mnhom **ghir score 10/10** (`INTL_MIN_SCORE`); sources mgharba: score >= `MIN_SCORE` (8).
 
 **Kora:** sources رياضة (هسبورت، سكاي نيوز عربية رياضة، ماركا ريال مدريد/برشلونة، آس، موندو ديبورتيفو برشلونة/ريال مدريد). Gemini (judge) kay3ref l khabar dyal kora (`football`) w kay3tih score b slom khas: 8 = natija d l mountakhab, ay match d l Botola, l fera9 l maghribiya f Afri9ya, l mountakhabat l kbar, transfer d la3ib maghribi wla star, akhbar kbar d Real/Barça; 7 = akhbar Real/Barça dyal Marca, akhbar l fera9 l maghribiya, la3ibin maghariba f Oropa. Kora kattsifet mn 7+ 7tta ila kant dawliya.
 
@@ -49,7 +49,7 @@ Sources: `sources.json` (`enabled: false` bach t7bes wa7ed). Sites li kaybloquiw
 5. **Test**: Actions → *News bot* → *Run workflow* (5 d9aye9). Awel dowra katsifet "✅ Bot khdam" w ma katsifetsh l akhbar l 9dam.
 6. **Tkhdem 24/24**: tab *Variables* → `NEWS_BOT_ENABLED` = `true`, men b3d *Run workflow* mra we7da. Kol run melli ysali kay-lanci run jay bo7do. Bach t7bso: `NEWS_BOT_ENABLED` = `false`.
 
-Variables ikhtiyariyin: `MIN_SCORE`, `HIGH_SCORE`, `GEMINI_MODELS`, `POLL_SECONDS`, `RUN_MINUTES`, `EDITOR_IDS`, `SITE_PUBLISH_URL` (+ secret `BOT_PUBLISH_SECRET`), `IG_USER_ID` (+ secret `IG_ACCESS_TOKEN`).
+Variables ikhtiyariyin: `MIN_SCORE`, `INTL_MIN_SCORE`, `HIGH_SCORE`, `GEMINI_MODELS`, `POLL_SECONDS`, `RUN_MINUTES`, `EDITOR_IDS`, `SITE_PUBLISH_URL` (+ secret `BOT_PUBLISH_SECRET`), `IG_USER_ID` (+ secret `IG_ACCESS_TOKEN`).
 
 ## Mohim
 
