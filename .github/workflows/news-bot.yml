@@ -77,8 +77,10 @@ jobs:
           path: state
           key: news-bot-state-${{ github.run_id }}-${{ github.run_attempt }}
 
+      # always(): 7tta ila run tcancela (GitHub wla timeout), chaine ma t9tta3ch.
+      # Bach t7bes l bot: NEWS_BOT_ENABLED = false.
       - name: Lanci run jay (24/24)
-        if: ${{ !cancelled() && vars.NEWS_BOT_ENABLED == 'true' }}
+        if: ${{ always() && vars.NEWS_BOT_ENABLED == 'true' }}
         run: gh workflow run news-bot.yml --repo "$GITHUB_REPOSITORY" --ref main -f minutes=55
         env:
           GH_TOKEN: ${{ github.token }}
